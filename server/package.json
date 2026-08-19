@@ -1,0 +1,17 @@
+{
+  "name": "stat-gatherer-server",
+  "version": "1.0.0",
+  "description": "Sync + global stats backend for Stat Gatherer",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

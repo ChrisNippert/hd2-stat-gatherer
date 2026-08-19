@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>STAT GATHERER // FIELD DATA TERMINAL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="scanlines" aria-hidden="true"></div>
+
+<header class="hud-header">
+  <div class="brand">
+    <span class="brand-star">★</span>
+    <div class="brand-text">
+      <h1>STAT GATHERER</h1>
+      <span class="brand-sub">FIELD DATA TERMINAL</span>
+    </div>
+  </div>
+  <div class="header-controls">
+    <button class="client-badge" id="client-badge" title="Open settings to change your Diver ID">
+      <span class="label">DIVER ID</span>
+      <span id="client-id-display">—</span>
+    </button>
+    <span class="sync-status" id="sync-status">OFFLINE</span>
+    <button id="settings-btn" class="btn btn-icon" aria-label="Settings">⚙</button>
+  </div>
+</header>
+
+<nav class="page-nav">
+  <button class="page-nav-btn active" data-page="tally">TALLY</button>
+  <button class="page-nav-btn" data-page="denom">DROP SIZES</button>
+</nav>
+
+<main id="tally-page">
+  <section class="panel mission-panel">
+    <div class="mission-timer">
+      <span class="timer-label">MISSION TIME <span id="pause-indicator" class="pause-indicator hidden">PAUSED</span></span>
+      <span id="timer-display" class="timer-display">00:00:00</span>
+    </div>
+    <div class="squad-mode">
+      <span class="timer-label">SQUAD</span>
+      <select id="squad-mode-select" class="squad-select" title="Tag this mission's access level so solo runs that can't open 2-man bunkers don't skew your drop-chance stats">
+        <option value="solo">Solo (No Warp Pack)</option>
+        <option value="solo_warp">Solo + Warp Pack</option>
+        <option value="multiplayer">Multiplayer (2+)</option>
+      </select>
+    </div>
+    <div class="mission-actions">
+      <button id="pause-mission-btn" class="btn btn-large">⏸ PAUSE</button>
+      <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
+    </div>
+  </section>
+
+  <section class="panel" id="poi-panel">
+    <h2 class="panel-title">POINTS OF INTEREST</h2>
+    <div id="poi-grid" class="poi-grid"></div>
+  </section>
+
+  <section class="panel" id="stats-panel">
+    <h2 class="panel-title">MISSION STATISTICS</h2>
+    <div class="stats-filter-row">
+      <span class="hint" style="margin:0;">Filter</span>
+      <select id="stats-squad-filter" class="squad-select" title="Squad access differs by mode — 2-man bunkers can't be looted solo without a Warp Pack, which skews blended drop-chance stats">
+        <option value="all">All Missions</option>
+        <option value="solo">Solo (No Warp Pack)</option>
+        <option value="solo_warp">Solo + Warp Pack</option>
+        <option value="multiplayer">Multiplayer (2+)</option>
+        <option value="unknown">Unlabeled (older data)</option>
+      </select>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="mine">MY STATS</button>
+      <button class="tab-btn" data-tab="global">GLOBAL STATS</button>
+    </div>
+    <div id="stats-mine" class="stats-content"></div>
+    <div id="stats-global" class="stats-content hidden"></div>
+  </section>
+</main>
+
+<main id="denom-page" class="hidden">
+  <section class="panel">
+    <h2 class="panel-title">DROP SIZE TRACKER</h2>
+    <p class="hint">Some items give a variable amount per pickup. Tally the exact amount each time to find the real average instead of guessing — then apply it to Resource Value.</p>
+    <div id="denom-grid" class="poi-grid"></div>
+  </section>
+</main>
+
+<div id="settings-overlay" class="settings-overlay hidden"></div>
+<aside id="settings-panel" class="settings-panel hidden">
+  <div class="settings-inner">
+    <button id="close-settings" class="btn btn-icon close-btn" aria-label="Close settings">✕</button>
+    <h2>TERMINAL SETTINGS</h2>
+
+    <div class="settings-group">
+      <h3>Diver ID</h3>
+      <p class="hint">This ID identifies your stats on the server. Enter a different ID to log in as that diver (pulls their synced history from the server).</p>
+      <div class="row">
+        <input type="text" id="client-id-input" spellcheck="false" />
+        <button id="apply-client-id" class="btn">Set</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Server</h3>
+      <p class="hint">Point this at your own server for global stats and cross-device sync. Leave blank to run fully offline.</p>
+      <div class="row">
+        <input type="text" id="server-url-input" placeholder="https://your-server:4000" spellcheck="false" />
+        <button id="apply-server-url" class="btn">Save</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Re-tag Missions</h3>
+      <p class="hint">Bulk-relabel the squad mode on already-recorded missions — e.g. tag old unlabeled data as Solo. Re-tagged missions get pushed to the server again on the next sync.</p>
+      <div class="row">
+        <select id="retag-from" class="squad-select">
+          <option value="unknown" selected>Unlabeled (older data)</option>
+          <option value="all">All Missions</option>
+          <option value="solo">Solo (No Warp Pack)</option>
+          <option value="solo_warp">Solo + Warp Pack</option>
+          <option value="multiplayer">Multiplayer (2+)</option>
+        </select>
+        <span class="retag-arrow">→</span>
+        <select id="retag-to" class="squad-select">
+          <option value="solo" selected>Solo (No Warp Pack)</option>
+          <option value="solo_warp">Solo + Warp Pack</option>
+          <option value="multiplayer">Multiplayer (2+)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="retag-apply" class="btn">Apply</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Point of Interest Types</h3>
+      <div id="poi-config-list" class="config-list"></div>
+      <div class="row">
+        <input type="text" id="new-poi-name" placeholder="Name" />
+        <input type="number" id="new-poi-slots" placeholder="Slots" min="1" value="1" />
+        <button id="add-poi-type" class="btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Item Types</h3>
+      <p class="hint">"Value" is the average resource amount one pickup is worth (e.g. Super Credits average 11 per pickup) — used for the Resource Value stats.</p>
+      <div id="item-config-list" class="config-list"></div>
+      <div class="row">
+        <input type="text" id="new-item-icon" class="icon-input" placeholder="🔹" maxlength="4" />
+        <input type="text" id="new-item-name" placeholder="Name" />
+        <input type="number" id="new-item-value" class="value-input" placeholder="Value" step="0.1" min="0" value="1" />
+        <button id="add-item-type" class="btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Data</h3>
+      <div class="row">
+        <button id="export-json" class="btn">Export JSON</button>
+        <button id="import-json-btn" class="btn">Import JSON</button>
+        <input type="file" id="import-json-input" accept="application/json" class="hidden" />
+      </div>
+      <div class="row">
+        <button id="reset-data" class="btn btn-danger">Reset All Local Data</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
