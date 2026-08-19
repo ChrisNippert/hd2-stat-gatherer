@@ -1,14 +1,22 @@
-import { loadConfig, saveConfig, slugify, uniqueId, FALLBACK_ICON, isImageIcon } from './config.js?v=20260819b';
-import * as state from './state.js?v=20260819b';
-import { computeStats, computeDenomStats, filterMissions } from './stats.js?v=20260819b';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260819b';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820h';
+import * as state from './state.js?v=20260820h';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260820h';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260820h';
 
 let config = loadConfig();
 let clientId = state.getClientId();
 let serverUrl = state.getServerUrl();
 let currentMission = state.getCurrentMission(config);
 let globalMissions = null; // lazily fetched
+let globalDenomTally = null; // lazily fetched, pooled across all divers: { itemId: { denom: count } }
 let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all' };
+// In-memory only (not persisted): a LIFO stack of denominations picked per
+// poi+item on the Tally page, so repeated "−" presses undo picks in the exact
+// reverse order they were made (pick +3 then +2, and "−" "−" correctly rolls
+// back the 2 first, then the 3) instead of only remembering the single most
+// recent pick. Resets on reload, which is fine — that's a fresh-session edge
+// case, not the common misclick.
+let denomPickStacks = {};
 
 const el = (id) => document.getElementById(id);
 
@@ -168,17 +176,11 @@ on('planet-input', 'change', (e) => {
     persistCurrentMission();
     return;
   }
-  let planet = findPlanetByName(typed);
+  const planet = findPlanetByName(typed);
   if (!planet) {
-    const id = uniqueId(config.planets.map((p) => p.id), slugify(typed));
-    planet = { id, name: typed };
-    config.planets.push(planet);
-    config.planets.sort((a, b) => a.name.localeCompare(b.name));
-    saveConfig(config);
-    renderPlanetDatalist();
-    renderStatsFilterSelects();
-    renderBackfillSelects();
-    toast(`Added new planet: ${typed}`, 'success');
+    e.target.value = findPlanetById(currentMission.planet)?.name || '';
+    toast(`"${typed}" isn't a recognized planet — pick one from the list.`, 'error');
+    return;
   }
   e.target.value = planet.name;
   currentMission.planet = planet.id;
@@ -195,7 +197,7 @@ function slotsFilled(poiId) {
 function renderPoiGrid() {
   const grid = el('poi-grid');
   if (config.poiTypes.length === 0) {
-    grid.innerHTML = '<p class="empty-note">No POI types configured. Add some in Settings.</p>';
+    grid.innerHTML = '<p class="empty-note">No POI types configured. Try Settings → Reset All Local Data to restore the defaults.</p>';
     return;
   }
   grid.innerHTML = config.poiTypes.map((p) => {
@@ -215,15 +217,26 @@ function renderPoiGrid() {
           <button class="btn btn-count plus" data-action="poi-inc">+1 FOUND</button>
         </div>
         <div class="poi-items">
-          ${config.itemTypes.map((i) => `
+          ${config.itemTypes.map((i) => {
+            const hasDenoms = i.denominations && i.denominations.length > 0;
+            const stack = hasDenoms ? (denomPickStacks[`${p.id}:${i.id}`] || []) : null;
+            const lastPick = stack && stack.length ? stack[stack.length - 1] : null;
+            return `
             <div class="item-row" data-item="${i.id}">
               ${iconBlock(i.icon)}
               <span class="item-name">${esc(i.name)}</span>
-              <button class="btn btn-count minus" data-action="item-dec">−</button>
-              <span class="item-count">${currentMission.itemDrops[p.id]?.[i.id] || 0}</span>
-              <button class="btn btn-count plus" data-action="item-inc">+</button>
+              <div class="item-controls">
+                <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
+                <span class="item-count">${currentMission.itemDrops[p.id]?.[i.id] || 0}</span>
+                ${hasDenoms ? `
+                  <div class="denom-pick-group" title="Tally the exact amount you picked up — this feeds Drop Sizes too, no need to double-enter it there">
+                    ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="item-inc-denom" data-denom="${d}">+${d}</button>`).join('')}
+                  </div>
+                ` : '<button class="btn btn-count plus" data-action="item-inc">+</button>'}
+              </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
         <div class="poi-progress"><div class="poi-progress-bar" style="width:${pct}%"></div></div>
         <div class="poi-progress-label">SLOTS TALLIED: ${filled} / ${totalSlots}</div>
@@ -251,7 +264,25 @@ on('poi-grid', 'click', (e) => {
     const itemRow = e.target.closest('.item-row');
     const itemId = itemRow.dataset.item;
     const delta = action === 'item-inc' ? 1 : -1;
+    if (action === 'item-dec' && (currentMission.itemDrops[poiId][itemId] || 0) > 0) {
+      const key = `${poiId}:${itemId}`;
+      const stack = denomPickStacks[key];
+      if (stack && stack.length > 0) {
+        const undoneDenom = stack.pop();
+        state.incrementDenomCount(itemId, undoneDenom, -1);
+        if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, undoneDenom, state.getDenomTally()[itemId][undoneDenom]).catch(() => {});
+      }
+    }
     currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) + delta);
+  } else if (action === 'item-inc-denom') {
+    const itemRow = e.target.closest('.item-row');
+    const itemId = itemRow.dataset.item;
+    const denom = btn.dataset.denom;
+    const key = `${poiId}:${itemId}`;
+    currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
+    state.incrementDenomCount(itemId, denom, 1);
+    (denomPickStacks[key] || (denomPickStacks[key] = [])).push(denom);
+    if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, denom, state.getDenomTally()[itemId][denom]).catch(() => {});
   } else {
     return;
   }
@@ -303,6 +334,45 @@ async function syncPendingMissions() {
     } catch {
       /* leave for next attempt */
     }
+  }
+  await syncDenomTally();
+  await refreshGlobalDenoms();
+}
+
+// Denomination counts are small in volume (a handful of item x amount
+// buckets, not one row per mission) so it's simplest to just re-push every
+// current local count on each sync pass rather than track per-bucket dirty
+// flags — the server upsert is idempotent either way.
+async function syncDenomTally() {
+  if (!serverUrl) return;
+  const tally = state.getDenomTally();
+  for (const itemId of Object.keys(tally)) {
+    for (const denom of Object.keys(tally[itemId])) {
+      try {
+        await submitDenomCount(serverUrl, clientId, itemId, denom, tally[itemId][denom]);
+      } catch {
+        /* leave for next sync pass */
+      }
+    }
+  }
+}
+
+async function refreshGlobalDenoms() {
+  if (!serverUrl) {
+    globalDenomTally = null;
+    return;
+  }
+  try {
+    const rows = await fetchDenominations(serverUrl);
+    const pooled = {};
+    rows.forEach((r) => {
+      if (!pooled[r.itemId]) pooled[r.itemId] = {};
+      pooled[r.itemId][r.denom] = (pooled[r.itemId][r.denom] || 0) + r.count;
+    });
+    globalDenomTally = pooled;
+    renderStats();
+  } catch {
+    /* keep whatever global data we already had */
   }
 }
 
@@ -457,16 +527,61 @@ function statsHtml(stats) {
   `;
 }
 
+// Read-only — Drop Sizes are now only tallied from the Tally page (the same
+// interface as missions), so Stats just reports the resulting distribution
+// like any other stat: counts and percentages, no +/- controls here. Not
+// filtered by statsFilters — pickup size isn't tied to squad mode,
+// difficulty, faction, or planet — so this uses the raw tally, not `stats`.
+function dropSizeStatsHtml(tally) {
+  const trackedItems = config.itemTypes.filter((i) => (i.denominations || []).length > 0);
+  if (!trackedItems.length) return '';
+  return `
+    <h3>Drop Sizes</h3>
+    ${trackedItems.map((i) => {
+      const denoms = i.denominations.slice().sort((a, b) => a - b);
+      const denomStats = computeDenomStats(tally, i.id);
+      if (denomStats.totalObservations === 0) {
+        return `<h4>${iconInline(i.icon)} ${esc(i.name)}</h4><p class="empty-note">No observations yet — tally a pickup on the Tally page.</p>`;
+      }
+      const rows = denoms.map((d) => {
+        const count = (tally[i.id] && tally[i.id][d]) || 0;
+        const pct = (count / denomStats.totalObservations) * 100;
+        return {
+          label: String(d),
+          value: count,
+          displayValue: `${pct.toFixed(0)}%`,
+          title: `${d}: ${count} pickup${count === 1 ? '' : 's'} (${pct.toFixed(1)}%)`,
+        };
+      });
+      return `
+        <h4>${iconInline(i.icon)} ${esc(i.name)} — avg ${denomStats.average.toFixed(2)} over ${denomStats.totalObservations} pickup${denomStats.totalObservations === 1 ? '' : 's'}</h4>
+        ${barChartHtml(rows)}
+        <table class="stats-table">
+          <thead><tr><th>Size</th><th>Count</th><th>% of Pickups</th></tr></thead>
+          <tbody>
+            ${denoms.map((d) => {
+              const count = (tally[i.id] && tally[i.id][d]) || 0;
+              const pct = (count / denomStats.totalObservations) * 100;
+              return `<tr><td>${d}</td><td>${count}</td><td>${pct.toFixed(1)}%</td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }).join('')}
+  `;
+}
+
 function renderStats() {
+  const resolvedItemTypes = resolveItemValues(config.itemTypes, state.getDenomTally(), globalDenomTally || {});
+  const resolvedConfig = { ...config, itemTypes: resolvedItemTypes };
   const history = filterMissions(state.getHistory(), statsFilters);
-  el('stats-mine').innerHTML = statsHtml(computeStats(history, config));
-  if (globalMissions) {
-    el('stats-global').innerHTML = statsHtml(computeStats(filterMissions(globalMissions, statsFilters), config));
-  } else {
-    el('stats-global').innerHTML = serverUrl
+  el('stats-mine').innerHTML = statsHtml(computeStats(history, resolvedConfig)) + dropSizeStatsHtml(state.getDenomTally());
+  const globalStatsHtml = globalMissions
+    ? statsHtml(computeStats(filterMissions(globalMissions, statsFilters), resolvedConfig))
+    : (serverUrl
       ? '<p class="empty-note">Loading global stats…</p>'
-      : '<p class="empty-note">Set a server URL in Settings to see global stats from all divers.</p>';
-  }
+      : '<p class="empty-note">Set a server URL in Settings to see global stats from all divers.</p>');
+  el('stats-global').innerHTML = globalStatsHtml + dropSizeStatsHtml(globalDenomTally || {});
 }
 
 on('stats-squad-filter', 'change', (e) => {
@@ -517,102 +632,10 @@ document.querySelectorAll('.page-nav-btn').forEach((btn) => {
     btn.classList.add('active');
     const page = btn.dataset.page;
     el('tally-page')?.classList.toggle('hidden', page !== 'tally');
-    el('denom-page')?.classList.toggle('hidden', page !== 'denom');
     el('stats-page')?.classList.toggle('hidden', page !== 'stats');
     el('log-page')?.classList.toggle('hidden', page !== 'log');
-    if (page === 'denom') renderDenomPage();
     if (page === 'log') renderLogPage();
   });
-});
-
-/* ---------------- Drop size tracker ---------------- */
-
-function renderDenomPage() {
-  const tally = state.getDenomTally();
-  el('denom-grid').innerHTML = config.itemTypes.map((i) => {
-    const denoms = (i.denominations || []).slice().sort((a, b) => a - b);
-    const denomStats = computeDenomStats(tally, i.id);
-    return `
-      <div class="poi-card denom-card" data-item="${i.id}">
-        <div class="denom-card-header">
-          ${iconBlock(i.icon)}
-          <span class="poi-name">${esc(i.name)}</span>
-        </div>
-        <div class="denom-avg">
-          ${denomStats.totalObservations > 0
-            ? `Observed avg: <strong>${denomStats.average.toFixed(2)}</strong> over ${denomStats.totalObservations} pickup${denomStats.totalObservations === 1 ? '' : 's'}`
-            : 'No observations yet — tally a pickup below.'}
-        </div>
-        <div class="denom-rows">
-          ${denoms.length ? denoms.map((d) => `
-            <div class="denom-row" data-denom="${d}">
-              <span class="denom-label">${d}</span>
-              <button class="btn btn-count minus" data-action="denom-dec">−</button>
-              <span class="denom-count">${(tally[i.id] && tally[i.id][d]) || 0}</span>
-              <button class="btn btn-count plus" data-action="denom-inc">+</button>
-              <button class="remove-btn" data-action="denom-remove" title="Remove this denomination">✕</button>
-            </div>
-          `).join('') : '<p class="empty-note">No denominations configured yet — add one below.</p>'}
-        </div>
-        <div class="row">
-          <input type="number" class="value-input denom-new-input" placeholder="e.g. 1000" step="1" />
-          <button class="btn" data-action="denom-add">Add Denomination</button>
-        </div>
-        ${denomStats.totalObservations > 0 ? `
-          <button class="btn btn-primary denom-apply-btn" data-action="denom-apply-value" data-avg="${denomStats.average}">
-            Use ${denomStats.average.toFixed(2)} as Resource Value
-          </button>
-        ` : ''}
-      </div>
-    `;
-  }).join('') || '<p class="empty-note">No item types configured.</p>';
-}
-
-on('denom-grid', 'click', (e) => {
-  const card = e.target.closest('.denom-card');
-  if (!card) return;
-  const itemId = card.dataset.item;
-  const itemType = config.itemTypes.find((i) => i.id === itemId);
-  if (!itemType) return;
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  const action = btn.dataset.action;
-
-  if (action === 'denom-inc' || action === 'denom-dec') {
-    const denom = e.target.closest('.denom-row').dataset.denom;
-    state.incrementDenomCount(itemId, denom, action === 'denom-inc' ? 1 : -1);
-    renderDenomPage();
-  } else if (action === 'denom-remove') {
-    const denom = e.target.closest('.denom-row').dataset.denom;
-    const tally = state.getDenomTally();
-    const count = (tally[itemId] && tally[itemId][denom]) || 0;
-    const message = count > 0
-      ? `Remove denomination "${denom}"? This deletes ${count} tallied observation${count === 1 ? '' : 's'} for it — can't be undone.`
-      : `Remove denomination "${denom}"?`;
-    if (!confirm(message)) return;
-    itemType.denominations = (itemType.denominations || []).filter((d) => String(d) !== denom);
-    saveConfig(config);
-    state.removeDenomCount(itemId, denom);
-    renderDenomPage();
-  } else if (action === 'denom-add') {
-    const input = card.querySelector('.denom-new-input');
-    const value = parseFloat(input.value);
-    if (!Number.isFinite(value)) return;
-    if (!itemType.denominations) itemType.denominations = [];
-    if (!itemType.denominations.includes(value)) {
-      itemType.denominations.push(value);
-      itemType.denominations.sort((a, b) => a - b);
-      saveConfig(config);
-    }
-    renderDenomPage();
-  } else if (action === 'denom-apply-value') {
-    const avg = Math.round(parseFloat(btn.dataset.avg) * 100) / 100;
-    itemType.value = avg;
-    saveConfig(config);
-    renderDenomPage();
-    renderStats();
-    toast(`${itemType.name} value updated to ${avg.toFixed(2)}.`, 'success');
-  }
 });
 
 /* ---------------- Mission log (edit / delete saved missions) ---------------- */
@@ -723,7 +746,7 @@ on('log-list', 'click', async (e) => {
     state.deleteMission(missionId);
     if (serverUrl) {
       try {
-        await deleteMissionRemote(serverUrl, missionId);
+        await deleteMissionRemote(serverUrl, missionId, clientId);
       } catch {
         /* best effort — local delete already happened */
       }
@@ -763,7 +786,6 @@ on('log-list', 'click', async (e) => {
 function openSettings() {
   el('settings-panel').classList.remove('hidden');
   el('settings-overlay').classList.remove('hidden');
-  renderConfigLists();
 }
 function closeSettings() {
   el('settings-panel').classList.add('hidden');
@@ -773,133 +795,6 @@ on('settings-btn', 'click', openSettings);
 on('client-badge', 'click', openSettings);
 on('close-settings', 'click', closeSettings);
 on('settings-overlay', 'click', closeSettings);
-
-function renderNameOnlyConfigList(containerId, entries, kind) {
-  const container = el(containerId);
-  if (!container) return;
-  container.innerHTML = entries.map((entry) => `
-    <div class="config-item" data-id="${entry.id}" data-kind="${kind}">
-      <span class="name">${esc(entry.name)}</span>
-      <button class="remove-btn" data-remove="${kind}" data-id="${entry.id}">✕</button>
-    </div>
-  `).join('') || '<p class="empty-note">None configured.</p>';
-}
-
-function renderConfigLists() {
-  el('poi-config-list').innerHTML = config.poiTypes.map((p) => `
-    <div class="config-item" data-id="${p.id}" data-kind="poi">
-      <span class="name">${esc(p.name)}</span>
-      <span class="meta">${p.slots} slot${p.slots === 1 ? '' : 's'}</span>
-      <button class="remove-btn" data-remove="poi" data-id="${p.id}">✕</button>
-    </div>
-  `).join('') || '<p class="empty-note">None configured.</p>';
-
-  el('item-config-list').innerHTML = config.itemTypes.map((i) => `
-    <div class="config-item" data-id="${i.id}" data-kind="item">
-      ${iconBlock(i.icon)}
-      <span class="name">${esc(i.name)}</span>
-      <input type="number" class="value-input" data-value-for="${i.id}" value="${Math.round((i.value ?? 1) * 100) / 100}" step="0.1" min="0" title="Average value per drop" />
-      <button class="remove-btn" data-remove="item" data-id="${i.id}">✕</button>
-    </div>
-  `).join('') || '<p class="empty-note">None configured.</p>';
-
-  renderNameOnlyConfigList('difficulty-config-list', config.difficulties, 'difficulty');
-  renderNameOnlyConfigList('faction-config-list', config.factions, 'faction');
-  renderNameOnlyConfigList('planet-config-list', config.planets, 'planet');
-}
-
-on('item-config-list', 'change', (e) => {
-  const input = e.target.closest('.value-input[data-value-for]');
-  if (!input) return;
-  const itemType = config.itemTypes.find((i) => i.id === input.dataset.valueFor);
-  if (!itemType) return;
-  const value = parseFloat(input.value);
-  itemType.value = Number.isFinite(value) ? value : 1;
-  saveConfig(config);
-  renderStats();
-});
-
-function persistConfigChange() {
-  saveConfig(config);
-  currentMission = state.getCurrentMission(config);
-  renderPoiGrid();
-  renderConfigLists();
-  renderStats();
-  renderMissionMetaSelects();
-  renderStatsFilterSelects();
-  renderBackfillSelects();
-}
-
-on('add-poi-type', 'click', () => {
-  const nameInput = el('new-poi-name');
-  const slotsInput = el('new-poi-slots');
-  const name = nameInput.value.trim();
-  const slots = Math.max(1, parseInt(slotsInput.value, 10) || 1);
-  if (!name) return;
-  const id = uniqueId(config.poiTypes.map((p) => p.id), slugify(name));
-  config.poiTypes.push({ id, name, slots });
-  nameInput.value = '';
-  slotsInput.value = '1';
-  persistConfigChange();
-});
-
-on('add-item-type', 'click', () => {
-  const nameInput = el('new-item-name');
-  const iconInput = el('new-item-icon');
-  const valueInput = el('new-item-value');
-  const name = nameInput.value.trim();
-  const icon = iconInput.value.trim() || FALLBACK_ICON;
-  const parsedValue = parseFloat(valueInput.value);
-  const value = Number.isFinite(parsedValue) ? parsedValue : 1;
-  if (!name) return;
-  const id = uniqueId(config.itemTypes.map((i) => i.id), slugify(name));
-  config.itemTypes.push({ id, name, icon, value });
-  nameInput.value = '';
-  iconInput.value = '';
-  valueInput.value = '1';
-  persistConfigChange();
-});
-
-function attachRemoveHandler(containerId) {
-  on(containerId, 'click', (e) => {
-    const btn = e.target.closest('button[data-remove]');
-    if (!btn) return;
-    const kind = btn.dataset.remove;
-    const id = btn.dataset.id;
-    if (!confirm('Remove this type? Historical stats already recorded for it will no longer display.')) return;
-    if (kind === 'poi') {
-      config.poiTypes = config.poiTypes.filter((p) => p.id !== id);
-    } else if (kind === 'item') {
-      config.itemTypes = config.itemTypes.filter((i) => i.id !== id);
-    } else if (kind === 'difficulty') {
-      config.difficulties = config.difficulties.filter((d) => d.id !== id);
-    } else if (kind === 'faction') {
-      config.factions = config.factions.filter((f) => f.id !== id);
-    } else if (kind === 'planet') {
-      config.planets = config.planets.filter((pl) => pl.id !== id);
-    }
-    persistConfigChange();
-  });
-}
-attachRemoveHandler('poi-config-list');
-attachRemoveHandler('item-config-list');
-attachRemoveHandler('difficulty-config-list');
-attachRemoveHandler('faction-config-list');
-attachRemoveHandler('planet-config-list');
-
-function addNameOnlyEntry(inputId, listKey) {
-  const nameInput = el(inputId);
-  const name = nameInput.value.trim();
-  if (!name) return;
-  const id = uniqueId(config[listKey].map((entry) => entry.id), slugify(name));
-  config[listKey].push({ id, name });
-  nameInput.value = '';
-  persistConfigChange();
-}
-
-on('add-difficulty', 'click', () => addNameOnlyEntry('new-difficulty-name', 'difficulties'));
-on('add-faction', 'click', () => addNameOnlyEntry('new-faction-name', 'factions'));
-on('add-planet', 'click', () => addNameOnlyEntry('new-planet-name', 'planets'));
 
 on('backfill-apply', 'click', async () => {
   const difficulty = el('backfill-difficulty').value;
@@ -1005,13 +900,11 @@ on('import-json-input', 'change', async (e) => {
     }
     currentMission = state.getCurrentMission(config);
     renderPoiGrid();
-    renderConfigLists();
     renderStats();
     renderSquadModeSelect();
     renderMissionMetaSelects();
     renderStatsFilterSelects();
     renderBackfillSelects();
-    if (!el('denom-page')?.classList.contains('hidden')) renderDenomPage();
     if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
     toast('Import complete.', 'success');
   } catch {
@@ -1029,7 +922,6 @@ on('reset-data', 'click', () => {
   renderStats();
   renderSquadModeSelect();
   renderMissionMetaSelects();
-  if (!el('denom-page')?.classList.contains('hidden')) renderDenomPage();
   if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
   toast('Local data reset.', 'success');
 });

@@ -3,24 +3,33 @@ const CONFIG_KEY = 'sg_config';
 export const FALLBACK_ICON = '⭐';
 export const FALLBACK_VALUE = 1;
 
-// Average resource value per single pickup, used to convert raw item counts
-// into estimated resource totals/rates. Super Credits average 10.9 (10 base,
-// 1% chance of a 100 bonus drop); medals vary 1-3 per pickup, averaged to 2.
+// Average resource value per single pickup — only used as a bootstrap
+// fallback before any Drop Size Tracker data exists; once observations come
+// in (locally or pooled from the server), stats.resolveItemValues() computes
+// the real average instead and this seed stops mattering. Super Credits
+// average 10.9 (10 base, 1% chance of a 100 bonus drop); medals vary 1-3 per
+// pickup, averaged to 2. Common/Rare Samples' true per-pickup amount isn't
+// asserted here — 1 is just a neutral starting point pending real data.
 const DEFAULT_ITEM_VALUES = {
   medals: 2,
   requisition: 100,
   super_credits: 11,
   guns: 1,
+  common_samples: 1,
+  rare_samples: 1,
 };
 
 // Starter denomination buckets for the Drop Size tracker — the discrete
 // amounts a single pickup can actually give, for items where that varies.
-// Fully user-editable from the Drop Sizes page; these are just seeds.
+// These are still user-addable from the Drop Sizes page (unlike the rest of
+// the taxonomy) since discovering new ones is the point of that feature.
 const DEFAULT_DENOMINATIONS = {
   medals: [1, 2, 3],
   requisition: [100, 1000],
   super_credits: [10, 100],
   guns: [],
+  common_samples: [],
+  rare_samples: [],
 };
 
 // Difficulty tiers as of this writing — Arrowhead has renamed/added tiers
@@ -46,8 +55,9 @@ const DEFAULT_FACTIONS = [
 
 // Full planet list sourced from helldivers.fandom.com/wiki/Planets_and_Sectors
 // (266 entries incl. Super Earth). The galactic war adds/changes planets over
-// time, so this will drift — the Planet field auto-creates a new entry if you
-// type one that isn't in this list yet, and more can be added in Settings.
+// time, so this will drift — but the list is fixed (not user-editable); if it
+// needs updating, re-scrape and replace this array rather than reintroducing
+// per-user editability.
 const DEFAULT_PLANETS = [
   { id: 'acamar_iv', name: 'Acamar IV' },
   { id: 'achernar_secundus', name: 'Achernar Secundus' },
@@ -319,8 +329,8 @@ const DEFAULT_PLANETS = [
 
 export const DEFAULT_CONFIG = {
   poiTypes: [
-    { id: 'two_man_bunker', name: 'Two-Man Bunker', slots: 3 },
-    { id: 'explodable_bunker', name: 'Explodable Bunker', slots: 2 },
+    { id: 'two_man_bunker', name: 'Bunker', slots: 3 },
+    { id: 'explodable_bunker', name: 'Container', slots: 2 },
     { id: 'loot_pod', name: 'Loot Pod', slots: 1 },
   ],
   itemTypes: [
@@ -328,6 +338,8 @@ export const DEFAULT_CONFIG = {
     { id: 'requisition', name: 'Requisition Slips', icon: 'assets/icons/requisition.webp', value: DEFAULT_ITEM_VALUES.requisition, denominations: DEFAULT_DENOMINATIONS.requisition },
     { id: 'super_credits', name: 'Super Credits', icon: 'assets/icons/super_credits.webp', value: DEFAULT_ITEM_VALUES.super_credits, denominations: DEFAULT_DENOMINATIONS.super_credits },
     { id: 'guns', name: 'Weapons', icon: 'assets/icons/weapons.svg', value: DEFAULT_ITEM_VALUES.guns, denominations: DEFAULT_DENOMINATIONS.guns },
+    { id: 'common_samples', name: 'Common Samples', icon: 'assets/icons/common_samples.webp', value: DEFAULT_ITEM_VALUES.common_samples, denominations: DEFAULT_DENOMINATIONS.common_samples },
+    { id: 'rare_samples', name: 'Rare Samples', icon: 'assets/icons/rare_samples.webp', value: DEFAULT_ITEM_VALUES.rare_samples, denominations: DEFAULT_DENOMINATIONS.rare_samples },
   ],
   difficulties: DEFAULT_DIFFICULTIES,
   factions: DEFAULT_FACTIONS,
@@ -350,6 +362,25 @@ export function loadConfig() {
     if (!Array.isArray(parsed.difficulties)) parsed.difficulties = structuredClone(DEFAULT_DIFFICULTIES);
     if (!Array.isArray(parsed.factions)) parsed.factions = structuredClone(DEFAULT_FACTIONS);
     if (!Array.isArray(parsed.planets)) parsed.planets = structuredClone(DEFAULT_PLANETS);
+    // The taxonomy is fixed and shipped with the app, but a user's saved
+    // config predates additions like this one — merge in any default entries
+    // (by id) that aren't already present, across all five taxonomy lists,
+    // so everyone converges on the same fixed set without needing a reset.
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+      const existingIds = new Set(parsed[key].map((entry) => entry.id));
+      DEFAULT_CONFIG[key].forEach((entry) => {
+        if (!existingIds.has(entry.id)) parsed[key].push(structuredClone(entry));
+      });
+    });
+    // Display names are app-owned text, not user data (there's no rename UI) —
+    // resync them from defaults so a stale cached config (e.g. from before a
+    // POI got renamed "Two-Man Bunker" -> "Bunker") updates without a reset.
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+      const namesById = new Map(DEFAULT_CONFIG[key].map((entry) => [entry.id, entry.name]));
+      parsed[key].forEach((entry) => {
+        if (namesById.has(entry.id)) entry.name = namesById.get(entry.id);
+      });
+    });
     return parsed;
   } catch {
     return structuredClone(DEFAULT_CONFIG);

@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260819b" />
+<link rel="stylesheet" href="css/style.css?v=20260820h" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -31,7 +31,6 @@
 
 <nav class="page-nav">
   <button class="page-nav-btn active" data-page="tally">TALLY</button>
-  <button class="page-nav-btn" data-page="denom">DROP SIZES</button>
   <button class="page-nav-btn" data-page="stats">STATS</button>
   <button class="page-nav-btn" data-page="log">MISSIONS</button>
 </nav>
@@ -57,7 +56,7 @@
       </div>
       <div class="squad-mode">
         <span class="timer-label">PLANET</span>
-        <input type="text" id="planet-input" class="squad-select" list="planet-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Type a planet name to search 266+ known planets. Typing one that isn't in the list yet adds it." />
+        <input type="text" id="planet-input" class="squad-select" list="planet-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Search the fixed list of 266 planets from the current galactic war map." />
       </div>
     </div>
     <datalist id="planet-datalist"></datalist>
@@ -68,15 +67,8 @@
 
   <section class="panel" id="poi-panel">
     <h2 class="panel-title">POINTS OF INTEREST</h2>
+    <p class="hint">For Medals, Requisition, and Super Credits, tap the exact amount you picked up — that also tallies it for Drop Sizes, no need to enter it twice.</p>
     <div id="poi-grid" class="poi-grid"></div>
-  </section>
-</main>
-
-<main id="denom-page" class="hidden">
-  <section class="panel">
-    <h2 class="panel-title">DROP SIZE TRACKER</h2>
-    <p class="hint">Some items give a variable amount per pickup. Tally the exact amount each time to find the real average instead of guessing — then apply it to Resource Value.</p>
-    <div id="denom-grid" class="poi-grid"></div>
   </section>
 </main>
 
@@ -130,7 +122,7 @@
 
     <div class="settings-group">
       <h3>Server</h3>
-      <p class="hint">Point this at your own server for global stats and cross-device sync. Leave blank to run fully offline.</p>
+      <p class="hint">Defaults to the shared public server for crowd-sourced Global Stats. Point it at your own server instead, or clear it and save to run fully offline.</p>
       <div class="row">
         <input type="text" id="server-url-input" placeholder="https://your-server:4000" spellcheck="false" />
         <button id="apply-server-url" class="btn">Save</button>
@@ -174,56 +166,6 @@
     </div>
 
     <div class="settings-group">
-      <h3>Point of Interest Types</h3>
-      <div id="poi-config-list" class="config-list"></div>
-      <div class="row">
-        <input type="text" id="new-poi-name" placeholder="Name" />
-        <input type="number" id="new-poi-slots" placeholder="Slots" min="1" value="1" />
-        <button id="add-poi-type" class="btn">Add</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Item Types</h3>
-      <p class="hint">"Value" is the average resource amount one pickup is worth (e.g. Super Credits average 11 per pickup) — used for the Resource Value stats.</p>
-      <div id="item-config-list" class="config-list"></div>
-      <div class="row">
-        <input type="text" id="new-item-icon" class="icon-input" placeholder="🔹" maxlength="4" />
-        <input type="text" id="new-item-name" placeholder="Name" />
-        <input type="number" id="new-item-value" class="value-input" placeholder="Value" step="0.1" min="0" value="1" />
-        <button id="add-item-type" class="btn">Add</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Difficulties</h3>
-      <div id="difficulty-config-list" class="config-list"></div>
-      <div class="row">
-        <input type="text" id="new-difficulty-name" placeholder="Name (e.g. Suicide Mission)" />
-        <button id="add-difficulty" class="btn">Add</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Factions</h3>
-      <div id="faction-config-list" class="config-list"></div>
-      <div class="row">
-        <input type="text" id="new-faction-name" placeholder="Name" />
-        <button id="add-faction" class="btn">Add</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Planets</h3>
-      <p class="hint">Planets rotate through the galactic war — add ones as you play them.</p>
-      <div id="planet-config-list" class="config-list"></div>
-      <div class="row">
-        <input type="text" id="new-planet-name" placeholder="Name" />
-        <button id="add-planet" class="btn">Add</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
       <h3>Data</h3>
       <div class="row">
         <button id="export-json" class="btn">Export JSON</button>
@@ -239,6 +181,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260819b"></script>
+<script type="module" src="js/main.js?v=20260820h"></script>
 </body>
 </html>

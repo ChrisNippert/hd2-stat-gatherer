@@ -221,6 +221,12 @@ h1, h2, h3, h4 {
 
 .btn-count.plus { background: #1f2a12; border-color: var(--se-yellow-dim); }
 
+/* Shows exactly what tapping it will undo (e.g. "−2" after picking a 2-medal
+   pickup) instead of a plain "−", so the stack-based undo isn't a mystery —
+   needs to grow wider than the fixed tap-target square for 3-4 digit denoms
+   like Requisition's 1000. */
+.btn-count.minus-labeled { width: auto; padding: 0 10px; font-size: 14px; font-weight: 600; }
+
 /* ---------- Layout ---------- */
 main {
   max-width: 1150px;
@@ -335,17 +341,77 @@ main {
 
 .poi-count-row .plus { flex: 1; width: auto; font-size: 15px; }
 
-.poi-items { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.poi-items { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
 
 .item-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  grid-template-areas: "icon name controls";
   align-items: center;
   gap: 10px;
   font-size: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.item-icon { font-size: 20px; min-width: 26px; text-align: center; }
-img.item-icon { height: 32px; width: auto; max-width: 64px; object-fit: contain; }
+.item-row:last-child { padding-bottom: 0; border-bottom: none; }
+
+.item-row .item-icon { grid-area: icon; }
+.item-row .item-name { grid-area: name; }
+.item-row .item-controls { grid-area: controls; }
+
+.item-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* Cards go single-column below ~620px (poi-grid's auto-fit minmax(300px)), so
+   below that a row's name + controls no longer both fit on one line — stack
+   icon+name on top and let controls span full width underneath instead of
+   squeezing the item name down to a clipped sliver. */
+@media (max-width: 600px) {
+  .item-row {
+    grid-template-columns: 36px 1fr;
+    grid-template-areas:
+      "icon name"
+      "controls controls";
+    row-gap: 8px;
+  }
+  .item-controls { justify-content: flex-start; }
+}
+
+/* One joined pill instead of N separate boxed buttons — reads as a single
+   "pick an amount" control rather than a repeated cluster of buttons, which
+   is what made a card with 3 denominated items feel like a wall of boxes. */
+.denom-pick-group {
+  display: flex;
+  border: 1px solid var(--se-yellow-dim);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+
+.btn-denom-pick {
+  min-width: 40px;
+  height: var(--tap);
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--se-yellow-dim);
+  color: var(--text-dim);
+  clip-path: none;
+  touch-action: manipulation;
+}
+
+.btn-denom-pick:last-child { border-right: none; }
+.btn-denom-pick:hover { background: rgba(255, 227, 77, 0.08); color: var(--text-light); }
+.btn-denom-pick:active { background: var(--se-yellow-dim); color: #14150c; }
+
+.item-icon { font-size: 20px; text-align: center; justify-self: center; }
+img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain; justify-self: center; }
 
 .icon-inline {
   height: 22px;
@@ -355,7 +421,7 @@ img.item-icon { height: 32px; width: auto; max-width: 64px; object-fit: contain;
   vertical-align: -6px;
   margin-right: 3px;
 }
-.item-name { flex: 1; color: var(--text-light); }
+.item-name { min-width: 0; color: var(--text-light); }
 .item-count { min-width: 28px; text-align: center; font-weight: 600; font-size: 18px; }
 
 .poi-progress {
@@ -375,47 +441,6 @@ img.item-icon { height: 32px; width: auto; max-width: 64px; object-fit: contain;
   color: var(--text-dim);
   letter-spacing: 0.08em;
 }
-
-/* ---------- Drop size tracker ---------- */
-.denom-card-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.denom-avg {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-bottom: 12px;
-}
-
-.denom-avg strong { color: var(--se-yellow); font-size: 15px; }
-
-.denom-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-
-.denom-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.denom-label {
-  flex: 1;
-  font-family: 'Staatliches', sans-serif;
-  font-size: 18px;
-  color: var(--text-light);
-}
-
-.denom-row .remove-btn {
-  font-size: 16px;
-  min-width: 32px;
-  min-height: 32px;
-}
-
-.denom-new-input { max-width: 100px; flex: none; }
-
-.denom-apply-btn { width: 100%; margin-top: 8px; }
 
 /* ---------- Stats ---------- */
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -666,40 +691,7 @@ img.item-icon { height: 32px; width: auto; max-width: 64px; object-fit: contain;
 
 .row input[type="number"] { max-width: 90px; flex: none; }
 
-.icon-input { max-width: 70px; flex: none; text-align: center; font-size: 20px; }
-
 .value-input { max-width: 80px; flex: none; }
-
-.config-item .value-input {
-  min-height: 36px;
-  padding: 6px 8px;
-  font-size: 14px;
-}
-
-.config-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 320px; overflow-y: auto; }
-
-.config-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--bg-panel-alt);
-  border: 1px solid var(--border-color);
-  padding: 10px 12px;
-  font-size: 15px;
-}
-
-.config-item .name { flex: 1; }
-.config-item .meta { color: var(--text-dim); font-size: 13px; }
-.config-item .remove-btn {
-  background: transparent;
-  border: none;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 20px;
-  min-width: 40px;
-  min-height: 40px;
-  touch-action: manipulation;
-}
 
 /* ---------- Toast ---------- */
 .toast {

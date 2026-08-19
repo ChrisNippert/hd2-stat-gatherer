@@ -48,15 +48,6 @@ export function incrementDenomCount(itemId, denom, delta) {
   return tally;
 }
 
-export function removeDenomCount(itemId, denom) {
-  const tally = getDenomTally();
-  if (tally[itemId]) {
-    delete tally[itemId][denom];
-    saveDenomTally(tally);
-  }
-  return tally;
-}
-
 export const SQUAD_MODES = ['solo', 'solo_warp', 'multiplayer'];
 export const DEFAULT_SQUAD_MODE = 'solo';
 
@@ -82,8 +73,15 @@ export function setClientId(id) {
   localStorage.setItem(CLIENT_ID_KEY, id);
 }
 
+// Ships pointed at the public shared instance by default so a fresh install
+// is already contributing to/reading from crowd stats with no setup. A saved
+// value (including an explicitly-cleared empty string, to go offline) always
+// wins over this — distinguished by localStorage having the key at all.
+export const DEFAULT_SERVER_URL = 'https://hd2stats.chrisnippert.com';
+
 export function getServerUrl() {
-  return localStorage.getItem(SERVER_URL_KEY) || '';
+  const saved = localStorage.getItem(SERVER_URL_KEY);
+  return saved === null ? DEFAULT_SERVER_URL : saved;
 }
 
 export function setServerUrl(url) {
