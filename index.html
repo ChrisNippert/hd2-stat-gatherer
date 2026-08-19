@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260819" />
+<link rel="stylesheet" href="css/style.css?v=20260819b" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -57,9 +57,10 @@
       </div>
       <div class="squad-mode">
         <span class="timer-label">PLANET</span>
-        <select id="planet-select" class="squad-select"></select>
+        <input type="text" id="planet-input" class="squad-select" list="planet-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Type a planet name to search 266+ known planets. Typing one that isn't in the list yet adds it." />
       </div>
     </div>
+    <datalist id="planet-datalist"></datalist>
     <div class="mission-actions">
       <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
     </div>
@@ -238,6 +239,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260819"></script>
+<script type="module" src="js/main.js?v=20260819b"></script>
 </body>
 </html>

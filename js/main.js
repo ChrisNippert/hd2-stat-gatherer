@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, slugify, uniqueId, FALLBACK_ICON, isImageIcon } from './config.js?v=20260819';
-import * as state from './state.js?v=20260819';
-import { computeStats, computeDenomStats, filterMissions } from './stats.js?v=20260819';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260819';
+import { loadConfig, saveConfig, slugify, uniqueId, FALLBACK_ICON, isImageIcon } from './config.js?v=20260819b';
+import * as state from './state.js?v=20260819b';
+import { computeStats, computeDenomStats, filterMissions } from './stats.js?v=20260819b';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260819b';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -111,13 +111,31 @@ function populateSelectOptions(selectEl, entries, opts = {}) {
   }
 }
 
+// Planet has 260+ options, so it's a searchable text input backed by a
+// <datalist> instead of a plain <select> — see planet-input's change handler
+// for how typed text resolves to (or creates) a planet entry.
+function renderPlanetDatalist() {
+  const list = el('planet-datalist');
+  if (!list) return;
+  list.innerHTML = config.planets.map((p) => `<option value="${esc(p.name)}"></option>`).join('');
+}
+
+function findPlanetById(id) {
+  return config.planets.find((p) => p.id === id);
+}
+
+function findPlanetByName(name) {
+  const normalized = name.trim().toLowerCase();
+  return config.planets.find((p) => p.name.toLowerCase() === normalized);
+}
+
 function renderMissionMetaSelects() {
   populateSelectOptions(el('difficulty-select'), config.difficulties);
   populateSelectOptions(el('faction-select'), config.factions);
-  populateSelectOptions(el('planet-select'), config.planets);
+  renderPlanetDatalist();
   if (el('difficulty-select')) el('difficulty-select').value = currentMission.difficulty || '';
   if (el('faction-select')) el('faction-select').value = currentMission.faction || '';
-  if (el('planet-select')) el('planet-select').value = currentMission.planet || '';
+  if (el('planet-input')) el('planet-input').value = findPlanetById(currentMission.planet)?.name || '';
 }
 
 function renderStatsFilterSelects() {
@@ -142,9 +160,29 @@ on('faction-select', 'change', (e) => {
   state.setLastFaction(e.target.value);
   persistCurrentMission();
 });
-on('planet-select', 'change', (e) => {
-  currentMission.planet = e.target.value;
-  state.setLastPlanet(e.target.value);
+on('planet-input', 'change', (e) => {
+  const typed = e.target.value.trim();
+  if (!typed) {
+    currentMission.planet = '';
+    state.setLastPlanet('');
+    persistCurrentMission();
+    return;
+  }
+  let planet = findPlanetByName(typed);
+  if (!planet) {
+    const id = uniqueId(config.planets.map((p) => p.id), slugify(typed));
+    planet = { id, name: typed };
+    config.planets.push(planet);
+    config.planets.sort((a, b) => a.name.localeCompare(b.name));
+    saveConfig(config);
+    renderPlanetDatalist();
+    renderStatsFilterSelects();
+    renderBackfillSelects();
+    toast(`Added new planet: ${typed}`, 'success');
+  }
+  e.target.value = planet.name;
+  currentMission.planet = planet.id;
+  state.setLastPlanet(planet.id);
   persistCurrentMission();
 });
 
