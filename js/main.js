@@ -1,14 +1,14 @@
-import { loadConfig, saveConfig, slugify, uniqueId, FALLBACK_ICON, isImageIcon } from './config.js';
-import * as state from './state.js';
-import { computeStats, computeDenomStats, formatDuration } from './stats.js';
-import { pingServer, submitMission, fetchMissions } from './api.js';
+import { loadConfig, saveConfig, slugify, uniqueId, FALLBACK_ICON, isImageIcon } from './config.js?v=20260819';
+import * as state from './state.js?v=20260819';
+import { computeStats, computeDenomStats, filterMissions } from './stats.js?v=20260819';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260819';
 
 let config = loadConfig();
 let clientId = state.getClientId();
 let serverUrl = state.getServerUrl();
 let currentMission = state.getCurrentMission(config);
 let globalMissions = null; // lazily fetched
-let statsSquadFilter = 'all';
+let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all' };
 
 const el = (id) => document.getElementById(id);
 
@@ -79,30 +79,6 @@ function setSyncStatus(text, cls = '') {
   s.className = `sync-status ${cls}`;
 }
 
-/* ---------------- Timer ---------------- */
-
-function tickTimer() {
-  el('timer-display').textContent = formatDuration(state.elapsedMs(currentMission));
-}
-setInterval(tickTimer, 1000);
-
-function isPaused() {
-  return currentMission.runningSince == null;
-}
-
-function updatePauseUI() {
-  const paused = isPaused();
-  el('pause-mission-btn').textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
-  el('pause-indicator').classList.toggle('hidden', !paused);
-  el('timer-display').classList.toggle('paused', paused);
-}
-
-on('pause-mission-btn', 'click', () => {
-  currentMission = isPaused() ? state.resumeMission(currentMission) : state.pauseMission(currentMission);
-  updatePauseUI();
-  tickTimer();
-});
-
 /* ---------------- Squad mode ---------------- */
 
 function renderSquadModeSelect() {
@@ -113,6 +89,62 @@ function renderSquadModeSelect() {
 on('squad-mode-select', 'change', (e) => {
   currentMission.squadMode = e.target.value;
   state.setLastSquadMode(e.target.value);
+  persistCurrentMission();
+});
+
+/* ---------------- Meta selects (Difficulty / Faction / Planet) ---------------- */
+
+// Populates a <select>'s options from a config list, optionally with an
+// "all"/"skip" leading option and an "unknown" trailing one, preserving the
+// current selection if it's still a valid option after re-render.
+function populateSelectOptions(selectEl, entries, opts = {}) {
+  if (!selectEl) return;
+  const prevValue = selectEl.value;
+  const parts = [];
+  if (opts.allLabel) parts.push(`<option value="all">${esc(opts.allLabel)}</option>`);
+  if (opts.skipLabel) parts.push(`<option value="">${esc(opts.skipLabel)}</option>`);
+  entries.forEach((entry) => parts.push(`<option value="${esc(entry.id)}">${esc(entry.name)}</option>`));
+  if (opts.unknownLabel) parts.push(`<option value="unknown">${esc(opts.unknownLabel)}</option>`);
+  selectEl.innerHTML = parts.join('');
+  if ([...selectEl.options].some((o) => o.value === prevValue)) {
+    selectEl.value = prevValue;
+  }
+}
+
+function renderMissionMetaSelects() {
+  populateSelectOptions(el('difficulty-select'), config.difficulties);
+  populateSelectOptions(el('faction-select'), config.factions);
+  populateSelectOptions(el('planet-select'), config.planets);
+  if (el('difficulty-select')) el('difficulty-select').value = currentMission.difficulty || '';
+  if (el('faction-select')) el('faction-select').value = currentMission.faction || '';
+  if (el('planet-select')) el('planet-select').value = currentMission.planet || '';
+}
+
+function renderStatsFilterSelects() {
+  populateSelectOptions(el('stats-difficulty-filter'), config.difficulties, { allLabel: 'All Difficulties', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('stats-faction-filter'), config.factions, { allLabel: 'All Factions', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('stats-planet-filter'), config.planets, { allLabel: 'All Planets', unknownLabel: 'Unlabeled' });
+}
+
+function renderBackfillSelects() {
+  populateSelectOptions(el('backfill-difficulty'), config.difficulties, { skipLabel: '— Skip Difficulty —' });
+  populateSelectOptions(el('backfill-faction'), config.factions, { skipLabel: '— Skip Faction —' });
+  populateSelectOptions(el('backfill-planet'), config.planets, { skipLabel: '— Skip Planet —' });
+}
+
+on('difficulty-select', 'change', (e) => {
+  currentMission.difficulty = e.target.value;
+  state.setLastDifficulty(e.target.value);
+  persistCurrentMission();
+});
+on('faction-select', 'change', (e) => {
+  currentMission.faction = e.target.value;
+  state.setLastFaction(e.target.value);
+  persistCurrentMission();
+});
+on('planet-select', 'change', (e) => {
+  currentMission.planet = e.target.value;
+  state.setLastPlanet(e.target.value);
   persistCurrentMission();
 });
 
@@ -197,9 +229,8 @@ on('new-mission-btn', 'click', async () => {
   currentMission = fresh;
   renderPoiGrid();
   renderStats();
-  updatePauseUI();
   renderSquadModeSelect();
-  tickTimer();
+  renderMissionMetaSelects();
   toast('Mission saved. New mission started.', 'success');
   await trySyncMission(completed);
 });
@@ -237,16 +268,84 @@ async function syncPendingMissions() {
   }
 }
 
+/* ---------------- Charts ---------------- */
+
+// Plain HTML/CSS bars (not SVG) so the 4px rounded data-end is just a
+// border-radius and the hover detail is a native title attribute — no chart
+// library, no custom tooltip layer, consistent with the rest of the app.
+function barChartHtml(rows) {
+  if (!rows.length) return '<p class="empty-note">No data yet.</p>';
+  const maxValue = Math.max(...rows.map((r) => r.value), 0.0001);
+  return `<div class="chart">
+    ${rows.map((r) => {
+      const pct = Math.max(2, (r.value / maxValue) * 100);
+      return `
+        <div class="chart-row" title="${esc(r.title)}">
+          <span class="chart-row-icon">${r.iconHtml || ''}</span>
+          <span class="chart-row-label">${esc(r.label)}</span>
+          <div class="chart-track"><div class="chart-bar" style="width:${pct}%"></div></div>
+          <span class="chart-row-value">${esc(r.displayValue)}</span>
+        </div>
+      `;
+    }).join('')}
+  </div>`;
+}
+
+// Sequential-shaded grid (POI type x item type), magnitude = drop chance per
+// slot. One hue, light->dark via color-mix() against the panel surface.
+function dropProbabilityHeatmapHtml(stats) {
+  if (!config.poiTypes.length || !config.itemTypes.length) return '<p class="empty-note">No data yet.</p>';
+  const allChances = config.poiTypes.flatMap((p) => config.itemTypes.map((i) => stats.dropChance[p.id][i.id].chance));
+  const maxChance = Math.max(...allChances, 0.0001);
+  const cells = [`<div class="heatmap-cell-label heatmap-corner"></div>`];
+  config.itemTypes.forEach((i) => {
+    cells.push(`<div class="heatmap-cell-label heatmap-col-label">${iconInline(i.icon)} ${esc(i.name)}</div>`);
+  });
+  config.poiTypes.forEach((p) => {
+    cells.push(`<div class="heatmap-cell-label heatmap-row-label">${esc(p.name)}</div>`);
+    config.itemTypes.forEach((i) => {
+      const chance = stats.dropChance[p.id][i.id].chance;
+      const pct = Math.round(Math.min(1, chance / maxChance) * 100);
+      const bg = `color-mix(in srgb, var(--bg-input) ${100 - pct}%, var(--chart-seq) ${pct}%)`;
+      cells.push(`<div class="heatmap-value-cell" style="background:${bg}" title="${esc(p.name)} × ${esc(i.name)}: ${(chance * 100).toFixed(1)}%">${(chance * 100).toFixed(0)}%</div>`);
+    });
+  });
+  return `<div class="heatmap" style="grid-template-columns: 130px repeat(${config.itemTypes.length}, minmax(60px, 1fr));">${cells.join('')}</div>`;
+}
+
 /* ---------------- Stats ---------------- */
 
 function statsHtml(stats) {
   if (stats.totalMissions === 0) {
     return '<p class="empty-note">No completed missions yet. Tally some POIs and hit "New Mission" to save your first one.</p>';
   }
+
+  const poiChartRows = config.poiTypes.map((p) => ({
+    label: p.name,
+    value: stats.poi[p.id].count,
+    displayValue: String(stats.poi[p.id].count),
+    title: `${p.name}: ${stats.poi[p.id].count} (${(stats.poi[p.id].pctOfPois * 100).toFixed(1)}% of POIs)`,
+  }));
+
+  const yieldChartRows = config.itemTypes.map((i) => ({
+    iconHtml: iconBlock(i.icon),
+    label: i.name,
+    value: stats.items[i.id].total,
+    displayValue: String(stats.items[i.id].total),
+    title: `${i.name}: ${stats.items[i.id].total} (${(stats.items[i.id].pctOfDrops * 100).toFixed(1)}% of drops)`,
+  }));
+
+  const valueChartRows = config.itemTypes.map((i) => ({
+    iconHtml: iconBlock(i.icon),
+    label: i.name,
+    value: stats.items[i.id].totalValue,
+    displayValue: stats.items[i.id].totalValue.toFixed(0),
+    title: `${i.name}: ${stats.items[i.id].totalValue.toFixed(0)} total value`,
+  }));
+
   return `
     <div class="stats-summary">
       <div class="stat-tile"><span class="stat-value">${stats.totalMissions}</span><span class="stat-label">MISSIONS</span></div>
-      <div class="stat-tile"><span class="stat-value">${formatDuration(stats.totalDurationMs)}</span><span class="stat-label">TOTAL TIME</span></div>
       <div class="stat-tile"><span class="stat-value">${stats.totalPois}</span><span class="stat-label">POIs FOUND</span></div>
       <div class="stat-tile"><span class="stat-value">${stats.avgPoisPerMission.toFixed(1)}</span><span class="stat-label">AVG POIs / MISSION</span></div>
       <div class="stat-tile"><span class="stat-value">${stats.totalItemDrops}</span><span class="stat-label">RESOURCES FOUND</span></div>
@@ -254,6 +353,7 @@ function statsHtml(stats) {
     </div>
 
     <h3>POI Frequency</h3>
+    ${barChartHtml(poiChartRows)}
     <table class="stats-table">
       <thead><tr><th>POI Type</th><th>Count</th><th>% of POIs</th><th>Avg / Mission</th></tr></thead>
       <tbody>
@@ -269,8 +369,9 @@ function statsHtml(stats) {
     </table>
 
     <h3>Resource Yield</h3>
+    ${barChartHtml(yieldChartRows)}
     <table class="stats-table">
-      <thead><tr><th>Item</th><th>Total</th><th>% of Drops</th><th>Avg / Mission</th><th>/ Hour</th><th>/ Min</th><th>/ Sec</th></tr></thead>
+      <thead><tr><th>Item</th><th>Total</th><th>% of Drops</th><th>Avg / Mission</th></tr></thead>
       <tbody>
         ${config.itemTypes.map((i) => `
           <tr>
@@ -278,17 +379,15 @@ function statsHtml(stats) {
             <td>${stats.items[i.id].total}</td>
             <td>${(stats.items[i.id].pctOfDrops * 100).toFixed(1)}%</td>
             <td>${stats.items[i.id].perMission.toFixed(2)}</td>
-            <td>${stats.items[i.id].perHour.toFixed(2)}</td>
-            <td>${stats.items[i.id].perMinute.toFixed(3)}</td>
-            <td>${stats.items[i.id].perSecond.toFixed(4)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
 
     <h3>Resource Value</h3>
+    ${barChartHtml(valueChartRows)}
     <table class="stats-table">
-      <thead><tr><th>Item</th><th>Value Each</th><th>Total Value</th><th>Value / Mission</th><th>Value / Hour</th><th>Value / Min</th><th>Value / Sec</th></tr></thead>
+      <thead><tr><th>Item</th><th>Value Each</th><th>Total Value</th><th>Value / Mission</th></tr></thead>
       <tbody>
         ${config.itemTypes.map((i) => `
           <tr>
@@ -296,15 +395,13 @@ function statsHtml(stats) {
             <td>${stats.items[i.id].avgValue}</td>
             <td>${stats.items[i.id].totalValue.toFixed(0)}</td>
             <td>${stats.items[i.id].valuePerMission.toFixed(1)}</td>
-            <td>${stats.items[i.id].valuePerHour.toFixed(1)}</td>
-            <td>${stats.items[i.id].valuePerMinute.toFixed(2)}</td>
-            <td>${stats.items[i.id].valuePerSecond.toFixed(3)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
 
     <h3>Drop Probability by POI</h3>
+    ${dropProbabilityHeatmapHtml(stats)}
     ${config.poiTypes.map((p) => `
       <div class="drop-table-wrap">
         <h4>${esc(p.name)}</h4>
@@ -322,16 +419,11 @@ function statsHtml(stats) {
   `;
 }
 
-function filterBySquadMode(missions) {
-  if (statsSquadFilter === 'all') return missions;
-  return missions.filter((m) => (m.squadMode || 'unknown') === statsSquadFilter);
-}
-
 function renderStats() {
-  const history = filterBySquadMode(state.getHistory());
+  const history = filterMissions(state.getHistory(), statsFilters);
   el('stats-mine').innerHTML = statsHtml(computeStats(history, config));
   if (globalMissions) {
-    el('stats-global').innerHTML = statsHtml(computeStats(filterBySquadMode(globalMissions), config));
+    el('stats-global').innerHTML = statsHtml(computeStats(filterMissions(globalMissions, statsFilters), config));
   } else {
     el('stats-global').innerHTML = serverUrl
       ? '<p class="empty-note">Loading global stats…</p>'
@@ -340,7 +432,19 @@ function renderStats() {
 }
 
 on('stats-squad-filter', 'change', (e) => {
-  statsSquadFilter = e.target.value;
+  statsFilters.squadMode = e.target.value;
+  renderStats();
+});
+on('stats-difficulty-filter', 'change', (e) => {
+  statsFilters.difficulty = e.target.value;
+  renderStats();
+});
+on('stats-faction-filter', 'change', (e) => {
+  statsFilters.faction = e.target.value;
+  renderStats();
+});
+on('stats-planet-filter', 'change', (e) => {
+  statsFilters.planet = e.target.value;
   renderStats();
 });
 
@@ -376,7 +480,10 @@ document.querySelectorAll('.page-nav-btn').forEach((btn) => {
     const page = btn.dataset.page;
     el('tally-page')?.classList.toggle('hidden', page !== 'tally');
     el('denom-page')?.classList.toggle('hidden', page !== 'denom');
+    el('stats-page')?.classList.toggle('hidden', page !== 'stats');
+    el('log-page')?.classList.toggle('hidden', page !== 'log');
     if (page === 'denom') renderDenomPage();
+    if (page === 'log') renderLogPage();
   });
 });
 
@@ -470,6 +577,149 @@ on('denom-grid', 'click', (e) => {
   }
 });
 
+/* ---------------- Mission log (edit / delete saved missions) ---------------- */
+
+function missionLabel(mission, listKey, field) {
+  const entry = config[listKey].find((e) => e.id === mission[field]);
+  return entry ? entry.name : 'Unlabeled';
+}
+
+const SQUAD_MODE_LABELS = { solo: 'Solo', solo_warp: 'Solo+Warp', multiplayer: 'Multiplayer', unknown: 'Unlabeled' };
+
+function missionEditFormHtml(mission) {
+  const squadOptions = Object.entries(SQUAD_MODE_LABELS)
+    .filter(([val]) => val !== 'unknown')
+    .map(([val, label]) => `<option value="${val}"${mission.squadMode === val ? ' selected' : ''}>${esc(label)}</option>`)
+    .join('');
+  const optList = (entries, selectedId) => entries.map((e) => `<option value="${esc(e.id)}"${selectedId === e.id ? ' selected' : ''}>${esc(e.name)}</option>`).join('');
+
+  return `
+    <div class="log-edit-form hidden">
+      <div class="row">
+        <select class="squad-select log-edit-field" data-field="squadMode">${squadOptions}</select>
+        <select class="squad-select log-edit-field" data-field="difficulty">${optList(config.difficulties, mission.difficulty)}</select>
+        <select class="squad-select log-edit-field" data-field="faction">${optList(config.factions, mission.faction)}</select>
+        <select class="squad-select log-edit-field" data-field="planet">${optList(config.planets, mission.planet)}</select>
+      </div>
+      ${config.poiTypes.map((p) => `
+        <div class="log-edit-poi">
+          <div class="row">
+            <span class="denom-label">${esc(p.name)}</span>
+            <input type="number" class="value-input log-edit-poi-count" data-poi="${p.id}" min="0" value="${mission.poiCounts?.[p.id] || 0}" />
+          </div>
+          <div class="log-edit-items">
+            ${config.itemTypes.map((i) => `
+              <div class="item-row">
+                ${iconBlock(i.icon)}
+                <span class="item-name">${esc(i.name)}</span>
+                <input type="number" class="value-input log-edit-item-count" data-poi="${p.id}" data-item="${i.id}" min="0" value="${mission.itemDrops?.[p.id]?.[i.id] || 0}" />
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+      <div class="row">
+        <button class="btn btn-primary" data-action="log-save">Save</button>
+        <button class="btn" data-action="log-cancel">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLogPage() {
+  const container = el('log-list');
+  if (!container) return;
+  const history = state.getHistory().slice().reverse();
+  if (history.length === 0) {
+    container.innerHTML = '<p class="empty-note">No saved missions yet.</p>';
+    return;
+  }
+  container.innerHTML = history.map((m) => {
+    const poiSummary = config.poiTypes
+      .map((p) => ({ name: p.name, count: m.poiCounts?.[p.id] || 0 }))
+      .filter((x) => x.count > 0)
+      .map((x) => `${x.count}x ${x.name}`)
+      .join(', ') || 'No POIs tallied';
+    const itemSummary = config.itemTypes
+      .map((i) => ({ name: i.name, total: config.poiTypes.reduce((sum, p) => sum + (m.itemDrops?.[p.id]?.[i.id] || 0), 0) }))
+      .filter((x) => x.total > 0)
+      .map((x) => `${x.total} ${x.name}`)
+      .join(', ') || 'No items tallied';
+    return `
+      <div class="log-card" data-id="${esc(m.id)}">
+        <div class="log-card-header">
+          <span class="log-card-date">${esc(new Date(m.startedAt).toLocaleString())}</span>
+          <div class="log-card-tags">
+            <span class="log-tag">${esc(SQUAD_MODE_LABELS[m.squadMode || 'unknown'] || m.squadMode)}</span>
+            <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
+            <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
+            <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
+          </div>
+        </div>
+        <div class="log-card-summary">${esc(poiSummary)} — ${esc(itemSummary)}</div>
+        <div class="log-card-actions">
+          <button class="btn" data-action="log-edit">Edit</button>
+          <button class="btn btn-danger" data-action="log-delete">Delete</button>
+        </div>
+        ${missionEditFormHtml(m)}
+      </div>
+    `;
+  }).join('');
+}
+
+on('log-list', 'click', async (e) => {
+  const card = e.target.closest('.log-card');
+  if (!card) return;
+  const missionId = card.dataset.id;
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+
+  if (action === 'log-edit') {
+    card.querySelector('.log-edit-form')?.classList.remove('hidden');
+    card.querySelector('.log-card-actions')?.classList.add('hidden');
+  } else if (action === 'log-cancel') {
+    renderLogPage();
+  } else if (action === 'log-delete') {
+    if (!confirm('Delete this mission permanently? This cannot be undone.')) return;
+    state.deleteMission(missionId);
+    if (serverUrl) {
+      try {
+        await deleteMissionRemote(serverUrl, missionId);
+      } catch {
+        /* best effort — local delete already happened */
+      }
+    }
+    renderLogPage();
+    renderStats();
+    toast('Mission deleted.', 'success');
+  } else if (action === 'log-save') {
+    const form = card.querySelector('.log-edit-form');
+    const patch = {};
+    form.querySelectorAll('.log-edit-field').forEach((sel) => { patch[sel.dataset.field] = sel.value; });
+    const poiCounts = {};
+    const itemDrops = {};
+    config.poiTypes.forEach((p) => {
+      poiCounts[p.id] = 0;
+      itemDrops[p.id] = {};
+      config.itemTypes.forEach((i) => { itemDrops[p.id][i.id] = 0; });
+    });
+    form.querySelectorAll('.log-edit-poi-count').forEach((input) => {
+      poiCounts[input.dataset.poi] = Math.max(0, parseInt(input.value, 10) || 0);
+    });
+    form.querySelectorAll('.log-edit-item-count').forEach((input) => {
+      itemDrops[input.dataset.poi][input.dataset.item] = Math.max(0, parseInt(input.value, 10) || 0);
+    });
+    patch.poiCounts = poiCounts;
+    patch.itemDrops = itemDrops;
+    state.updateMission(missionId, patch);
+    renderLogPage();
+    renderStats();
+    toast('Mission updated.', 'success');
+    await syncPendingMissions();
+  }
+});
+
 /* ---------------- Settings panel ---------------- */
 
 function openSettings() {
@@ -485,6 +735,17 @@ on('settings-btn', 'click', openSettings);
 on('client-badge', 'click', openSettings);
 on('close-settings', 'click', closeSettings);
 on('settings-overlay', 'click', closeSettings);
+
+function renderNameOnlyConfigList(containerId, entries, kind) {
+  const container = el(containerId);
+  if (!container) return;
+  container.innerHTML = entries.map((entry) => `
+    <div class="config-item" data-id="${entry.id}" data-kind="${kind}">
+      <span class="name">${esc(entry.name)}</span>
+      <button class="remove-btn" data-remove="${kind}" data-id="${entry.id}">✕</button>
+    </div>
+  `).join('') || '<p class="empty-note">None configured.</p>';
+}
 
 function renderConfigLists() {
   el('poi-config-list').innerHTML = config.poiTypes.map((p) => `
@@ -503,6 +764,10 @@ function renderConfigLists() {
       <button class="remove-btn" data-remove="item" data-id="${i.id}">✕</button>
     </div>
   `).join('') || '<p class="empty-note">None configured.</p>';
+
+  renderNameOnlyConfigList('difficulty-config-list', config.difficulties, 'difficulty');
+  renderNameOnlyConfigList('faction-config-list', config.factions, 'faction');
+  renderNameOnlyConfigList('planet-config-list', config.planets, 'planet');
 }
 
 on('item-config-list', 'change', (e) => {
@@ -522,6 +787,9 @@ function persistConfigChange() {
   renderPoiGrid();
   renderConfigLists();
   renderStats();
+  renderMissionMetaSelects();
+  renderStatsFilterSelects();
+  renderBackfillSelects();
 }
 
 on('add-poi-type', 'click', () => {
@@ -563,14 +831,55 @@ function attachRemoveHandler(containerId) {
     if (!confirm('Remove this type? Historical stats already recorded for it will no longer display.')) return;
     if (kind === 'poi') {
       config.poiTypes = config.poiTypes.filter((p) => p.id !== id);
-    } else {
+    } else if (kind === 'item') {
       config.itemTypes = config.itemTypes.filter((i) => i.id !== id);
+    } else if (kind === 'difficulty') {
+      config.difficulties = config.difficulties.filter((d) => d.id !== id);
+    } else if (kind === 'faction') {
+      config.factions = config.factions.filter((f) => f.id !== id);
+    } else if (kind === 'planet') {
+      config.planets = config.planets.filter((pl) => pl.id !== id);
     }
     persistConfigChange();
   });
 }
 attachRemoveHandler('poi-config-list');
 attachRemoveHandler('item-config-list');
+attachRemoveHandler('difficulty-config-list');
+attachRemoveHandler('faction-config-list');
+attachRemoveHandler('planet-config-list');
+
+function addNameOnlyEntry(inputId, listKey) {
+  const nameInput = el(inputId);
+  const name = nameInput.value.trim();
+  if (!name) return;
+  const id = uniqueId(config[listKey].map((entry) => entry.id), slugify(name));
+  config[listKey].push({ id, name });
+  nameInput.value = '';
+  persistConfigChange();
+}
+
+on('add-difficulty', 'click', () => addNameOnlyEntry('new-difficulty-name', 'difficulties'));
+on('add-faction', 'click', () => addNameOnlyEntry('new-faction-name', 'factions'));
+on('add-planet', 'click', () => addNameOnlyEntry('new-planet-name', 'planets'));
+
+on('backfill-apply', 'click', async () => {
+  const difficulty = el('backfill-difficulty').value;
+  const faction = el('backfill-faction').value;
+  const planet = el('backfill-planet').value;
+  if (!difficulty && !faction && !planet) {
+    toast('Pick at least one field to backfill.', '');
+    return;
+  }
+  const count = state.backfillMissionMetadata({ difficulty, faction, planet });
+  if (count === 0) {
+    toast('No missions needed backfilling.', '');
+    return;
+  }
+  renderStats();
+  toast(`Backfilled ${count} mission(s).`, 'success');
+  await syncPendingMissions();
+});
 
 on('apply-client-id', 'click', async () => {
   const newId = el('client-id-input').value.trim();
@@ -660,9 +969,12 @@ on('import-json-input', 'change', async (e) => {
     renderPoiGrid();
     renderConfigLists();
     renderStats();
-    updatePauseUI();
     renderSquadModeSelect();
+    renderMissionMetaSelects();
+    renderStatsFilterSelects();
+    renderBackfillSelects();
     if (!el('denom-page')?.classList.contains('hidden')) renderDenomPage();
+    if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
     toast('Import complete.', 'success');
   } catch {
     toast('Import failed — invalid JSON file.', 'error');
@@ -677,9 +989,10 @@ on('reset-data', 'click', () => {
   currentMission = state.getCurrentMission(config);
   renderPoiGrid();
   renderStats();
-  updatePauseUI();
   renderSquadModeSelect();
+  renderMissionMetaSelects();
   if (!el('denom-page')?.classList.contains('hidden')) renderDenomPage();
+  if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
   toast('Local data reset.', 'success');
 });
 
@@ -688,10 +1001,11 @@ on('reset-data', 'click', () => {
 function init() {
   safe(renderClientBadge, 'renderClientBadge');
   safe(renderPoiGrid, 'renderPoiGrid');
+  safe(renderMissionMetaSelects, 'renderMissionMetaSelects');
+  safe(renderStatsFilterSelects, 'renderStatsFilterSelects');
+  safe(renderBackfillSelects, 'renderBackfillSelects');
   safe(renderStats, 'renderStats');
-  safe(updatePauseUI, 'updatePauseUI');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');
-  safe(tickTimer, 'tickTimer');
   syncPendingMissions().then(() => {
     if (!el('stats-global')?.classList.contains('hidden')) refreshGlobalStats();
   }).catch((err) => console.error('Stat Gatherer: initial sync failed', err));

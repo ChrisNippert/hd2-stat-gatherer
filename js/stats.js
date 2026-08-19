@@ -15,25 +15,16 @@ export function computeStats(missions, config) {
       total: 0,
       pctOfDrops: 0,
       perMission: 0,
-      perHour: 0,
-      perMinute: 0,
-      perSecond: 0,
       avgValue: i.value != null ? i.value : 1,
       totalValue: 0,
       valuePerMission: 0,
-      valuePerHour: 0,
-      valuePerMinute: 0,
-      valuePerSecond: 0,
     };
   });
 
-  let totalDurationMs = 0;
   let totalPois = 0;
   let totalItemDrops = 0;
 
   missions.forEach((m) => {
-    const dur = m.durationMs != null ? m.durationMs : (m.endedAt ? m.endedAt - m.startedAt : 0);
-    totalDurationMs += dur;
     config.poiTypes.forEach((p) => {
       const c = (m.poiCounts && m.poiCounts[p.id]) || 0;
       poi[p.id].count += c;
@@ -59,25 +50,16 @@ export function computeStats(missions, config) {
     });
   });
 
-  const hours = totalDurationMs / 3_600_000;
   config.itemTypes.forEach((i) => {
     const it = items[i.id];
     it.pctOfDrops = totalItemDrops > 0 ? it.total / totalItemDrops : 0;
     it.perMission = totalMissions > 0 ? it.total / totalMissions : 0;
-    it.perHour = hours > 0 ? it.total / hours : 0;
-    it.perMinute = it.perHour / 60;
-    it.perSecond = it.perMinute / 60;
-
     it.totalValue = it.total * it.avgValue;
     it.valuePerMission = totalMissions > 0 ? it.totalValue / totalMissions : 0;
-    it.valuePerHour = hours > 0 ? it.totalValue / hours : 0;
-    it.valuePerMinute = it.valuePerHour / 60;
-    it.valuePerSecond = it.valuePerMinute / 60;
   });
 
   return {
     totalMissions,
-    totalDurationMs,
     totalPois,
     totalItemDrops,
     avgPoisPerMission: totalMissions > 0 ? totalPois / totalMissions : 0,
@@ -86,6 +68,19 @@ export function computeStats(missions, config) {
     items,
     dropChance,
   };
+}
+
+// filters: { squadMode, difficulty, planet, faction } — each 'all' (or
+// omitted) means no filter on that dimension. Missing mission fields are
+// treated as the 'unknown' bucket so old data can still be filtered/found.
+export function filterMissions(missions, filters = {}) {
+  return missions.filter((m) => {
+    if (filters.squadMode && filters.squadMode !== 'all' && (m.squadMode || 'unknown') !== filters.squadMode) return false;
+    if (filters.difficulty && filters.difficulty !== 'all' && (m.difficulty || 'unknown') !== filters.difficulty) return false;
+    if (filters.planet && filters.planet !== 'all' && (m.planet || 'unknown') !== filters.planet) return false;
+    if (filters.faction && filters.faction !== 'all' && (m.faction || 'unknown') !== filters.faction) return false;
+    return true;
+  });
 }
 
 export function computeDenomStats(tally, itemId) {

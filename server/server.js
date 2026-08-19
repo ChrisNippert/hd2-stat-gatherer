@@ -17,6 +17,9 @@ db.exec(`
     ended_at INTEGER,
     duration_ms INTEGER,
     squad_mode TEXT,
+    difficulty TEXT,
+    faction TEXT,
+    planet TEXT,
     poi_counts TEXT NOT NULL,
     item_drops TEXT NOT NULL,
     created_at INTEGER NOT NULL
@@ -27,6 +30,9 @@ db.exec(`
 for (const stmt of [
   'ALTER TABLE missions ADD COLUMN duration_ms INTEGER',
   'ALTER TABLE missions ADD COLUMN squad_mode TEXT',
+  'ALTER TABLE missions ADD COLUMN difficulty TEXT',
+  'ALTER TABLE missions ADD COLUMN faction TEXT',
+  'ALTER TABLE missions ADD COLUMN planet TEXT',
 ]) {
   try {
     db.exec(stmt);
@@ -36,12 +42,15 @@ for (const stmt of [
 }
 
 const upsertMission = db.prepare(`
-  INSERT INTO missions (id, client_id, started_at, ended_at, duration_ms, squad_mode, poi_counts, item_drops, created_at)
-  VALUES ($id, $clientId, $startedAt, $endedAt, $durationMs, $squadMode, $poiCounts, $itemDrops, $createdAt)
+  INSERT INTO missions (id, client_id, started_at, ended_at, duration_ms, squad_mode, difficulty, faction, planet, poi_counts, item_drops, created_at)
+  VALUES ($id, $clientId, $startedAt, $endedAt, $durationMs, $squadMode, $difficulty, $faction, $planet, $poiCounts, $itemDrops, $createdAt)
   ON CONFLICT(id) DO UPDATE SET
     ended_at = excluded.ended_at,
     duration_ms = excluded.duration_ms,
     squad_mode = excluded.squad_mode,
+    difficulty = excluded.difficulty,
+    faction = excluded.faction,
+    planet = excluded.planet,
     poi_counts = excluded.poi_counts,
     item_drops = excluded.item_drops
 `);
@@ -54,6 +63,9 @@ function rowToMission(row) {
     endedAt: row.ended_at,
     durationMs: row.duration_ms,
     squadMode: row.squad_mode,
+    difficulty: row.difficulty,
+    faction: row.faction,
+    planet: row.planet,
     poiCounts: JSON.parse(row.poi_counts),
     itemDrops: JSON.parse(row.item_drops),
   };
@@ -82,6 +94,9 @@ app.post('/api/missions', (req, res) => {
     $endedAt: mission.endedAt ?? null,
     $durationMs: mission.durationMs ?? null,
     $squadMode: mission.squadMode ?? null,
+    $difficulty: mission.difficulty ?? null,
+    $faction: mission.faction ?? null,
+    $planet: mission.planet ?? null,
     $poiCounts: JSON.stringify(mission.poiCounts || {}),
     $itemDrops: JSON.stringify(mission.itemDrops || {}),
     $createdAt: Date.now(),
@@ -95,6 +110,11 @@ app.get('/api/missions', (req, res) => {
     ? db.prepare('SELECT * FROM missions WHERE client_id = ? ORDER BY started_at ASC').all(clientId)
     : db.prepare('SELECT * FROM missions ORDER BY started_at ASC').all();
   res.json({ missions: rows.map(rowToMission) });
+});
+
+app.delete('/api/missions/:id', (req, res) => {
+  db.prepare('DELETE FROM missions WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

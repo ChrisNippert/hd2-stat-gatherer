@@ -4,6 +4,30 @@ const HISTORY_KEY = 'sg_mission_history';
 const SERVER_URL_KEY = 'sg_server_url';
 const SQUAD_MODE_KEY = 'sg_last_squad_mode';
 const DENOM_TALLY_KEY = 'sg_denom_tally';
+const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
+const LAST_PLANET_KEY = 'sg_last_planet';
+const LAST_FACTION_KEY = 'sg_last_faction';
+
+export function getLastDifficulty() {
+  return localStorage.getItem(LAST_DIFFICULTY_KEY) || '';
+}
+export function setLastDifficulty(id) {
+  localStorage.setItem(LAST_DIFFICULTY_KEY, id || '');
+}
+
+export function getLastPlanet() {
+  return localStorage.getItem(LAST_PLANET_KEY) || '';
+}
+export function setLastPlanet(id) {
+  localStorage.setItem(LAST_PLANET_KEY, id || '');
+}
+
+export function getLastFaction() {
+  return localStorage.getItem(LAST_FACTION_KEY) || '';
+}
+export function setLastFaction(id) {
+  localStorage.setItem(LAST_FACTION_KEY, id || '');
+}
 
 // Lifetime (not per-mission) tally of observed drop amounts per item type:
 // { [itemId]: { [denomination]: observationCount } }
@@ -80,24 +104,23 @@ function blankMission(config) {
     id: crypto.randomUUID(),
     startedAt: Date.now(),
     endedAt: null,
-    runningSince: Date.now(),
-    accumulatedMs: 0,
     squadMode: getLastSquadMode(),
+    difficulty: getLastDifficulty(),
+    planet: getLastPlanet(),
+    faction: getLastFaction(),
     poiCounts,
     itemDrops,
   };
 }
 
 function reconcileWithConfig(mission, config) {
-  if (mission.runningSince === undefined) {
-    // Backfill missions saved before pause support existed: assume never paused.
-    mission.runningSince = mission.endedAt ? null : mission.startedAt;
-    mission.accumulatedMs = mission.accumulatedMs ?? 0;
-  }
   if (mission.squadMode === undefined) {
     // Backfill missions saved before squad-mode tagging existed: unknown, not assumed solo.
     mission.squadMode = 'unknown';
   }
+  if (mission.difficulty === undefined) mission.difficulty = '';
+  if (mission.planet === undefined) mission.planet = '';
+  if (mission.faction === undefined) mission.faction = '';
   config.poiTypes.forEach((p) => {
     if (!(p.id in mission.poiCounts)) mission.poiCounts[p.id] = 0;
     if (!mission.itemDrops[p.id]) mission.itemDrops[p.id] = {};
@@ -133,12 +156,7 @@ export function saveHistory(history) {
 
 export function completeMission(config) {
   const mission = getCurrentMission(config);
-  if (mission.runningSince != null) {
-    mission.accumulatedMs += Date.now() - mission.runningSince;
-    mission.runningSince = null;
-  }
   mission.endedAt = Date.now();
-  mission.durationMs = mission.accumulatedMs;
   const history = getHistory();
   const completed = { ...mission, synced: false };
   history.push(completed);
@@ -146,25 +164,6 @@ export function completeMission(config) {
   const fresh = blankMission(config);
   saveCurrentMission(fresh);
   return { completed, fresh };
-}
-
-export function pauseMission(mission) {
-  if (mission.runningSince == null) return mission;
-  mission.accumulatedMs += Date.now() - mission.runningSince;
-  mission.runningSince = null;
-  saveCurrentMission(mission);
-  return mission;
-}
-
-export function resumeMission(mission) {
-  if (mission.runningSince != null) return mission;
-  mission.runningSince = Date.now();
-  saveCurrentMission(mission);
-  return mission;
-}
-
-export function elapsedMs(mission) {
-  return mission.accumulatedMs + (mission.runningSince != null ? Date.now() - mission.runningSince : 0);
 }
 
 export function markSynced(missionId) {
@@ -194,8 +193,49 @@ export function retagMissions(fromMode, toMode) {
   return count;
 }
 
+// Bulk-fills difficulty/planet/faction on missions that don't have them set
+// yet — e.g. backfilling old data recorded before these fields existed.
+// Only touches missions currently missing a given field, so it's safe to
+// run repeatedly without overwriting anything already labeled.
+export function backfillMissionMetadata({ difficulty, planet, faction } = {}) {
+  const history = getHistory();
+  let count = 0;
+  history.forEach((m) => {
+    let changed = false;
+    if (difficulty && !m.difficulty) { m.difficulty = difficulty; changed = true; }
+    if (planet && !m.planet) { m.planet = planet; changed = true; }
+    if (faction && !m.faction) { m.faction = faction; changed = true; }
+    if (changed) {
+      m.synced = false;
+      count += 1;
+    }
+  });
+  if (count > 0) saveHistory(history);
+  return count;
+}
+
 export function replaceHistory(missions) {
   saveHistory(missions);
+}
+
+// Edits an already-saved mission (POI/item counts, squad mode, difficulty,
+// faction, planet). Marks it unsynced so the correction gets pushed to the
+// server on the next sync, overwriting the old copy there (same id).
+export function updateMission(missionId, patch) {
+  const history = getHistory();
+  const idx = history.findIndex((m) => m.id === missionId);
+  if (idx < 0) return false;
+  history[idx] = { ...history[idx], ...patch, synced: false };
+  saveHistory(history);
+  return true;
+}
+
+export function deleteMission(missionId) {
+  const history = getHistory();
+  const next = history.filter((m) => m.id !== missionId);
+  const removed = next.length !== history.length;
+  if (removed) saveHistory(next);
+  return removed;
 }
 
 export function resetAllData() {

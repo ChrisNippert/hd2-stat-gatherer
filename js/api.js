@@ -26,3 +26,9 @@ export async function fetchMissions(baseUrl, clientId) {
   const data = await res.json();
   return data.missions;
 }
+
+export async function deleteMissionRemote(baseUrl, missionId) {
+  const res = await fetch(`${baseUrl}/api/missions/${encodeURIComponent(missionId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+  return res.json();
+}

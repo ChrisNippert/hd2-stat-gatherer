@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/style.css?v=20260819" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -32,24 +32,35 @@
 <nav class="page-nav">
   <button class="page-nav-btn active" data-page="tally">TALLY</button>
   <button class="page-nav-btn" data-page="denom">DROP SIZES</button>
+  <button class="page-nav-btn" data-page="stats">STATS</button>
+  <button class="page-nav-btn" data-page="log">MISSIONS</button>
 </nav>
 
 <main id="tally-page">
   <section class="panel mission-panel">
-    <div class="mission-timer">
-      <span class="timer-label">MISSION TIME <span id="pause-indicator" class="pause-indicator hidden">PAUSED</span></span>
-      <span id="timer-display" class="timer-display">00:00:00</span>
-    </div>
-    <div class="squad-mode">
-      <span class="timer-label">SQUAD</span>
-      <select id="squad-mode-select" class="squad-select" title="Tag this mission's access level so solo runs that can't open 2-man bunkers don't skew your drop-chance stats">
-        <option value="solo">Solo (No Warp Pack)</option>
-        <option value="solo_warp">Solo + Warp Pack</option>
-        <option value="multiplayer">Multiplayer (2+)</option>
-      </select>
+    <div class="mission-meta-grid">
+      <div class="squad-mode">
+        <span class="timer-label">SQUAD</span>
+        <select id="squad-mode-select" class="squad-select" title="Tag this mission's access level so solo runs that can't open 2-man bunkers don't skew your drop-chance stats">
+          <option value="solo">Solo (No Warp Pack)</option>
+          <option value="solo_warp">Solo + Warp Pack</option>
+          <option value="multiplayer">Multiplayer (2+)</option>
+        </select>
+      </div>
+      <div class="squad-mode">
+        <span class="timer-label">DIFFICULTY</span>
+        <select id="difficulty-select" class="squad-select"></select>
+      </div>
+      <div class="squad-mode">
+        <span class="timer-label">FACTION</span>
+        <select id="faction-select" class="squad-select"></select>
+      </div>
+      <div class="squad-mode">
+        <span class="timer-label">PLANET</span>
+        <select id="planet-select" class="squad-select"></select>
+      </div>
     </div>
     <div class="mission-actions">
-      <button id="pause-mission-btn" class="btn btn-large">⏸ PAUSE</button>
       <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
     </div>
   </section>
@@ -58,18 +69,31 @@
     <h2 class="panel-title">POINTS OF INTEREST</h2>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
+</main>
 
+<main id="denom-page" class="hidden">
+  <section class="panel">
+    <h2 class="panel-title">DROP SIZE TRACKER</h2>
+    <p class="hint">Some items give a variable amount per pickup. Tally the exact amount each time to find the real average instead of guessing — then apply it to Resource Value.</p>
+    <div id="denom-grid" class="poi-grid"></div>
+  </section>
+</main>
+
+<main id="stats-page" class="hidden">
   <section class="panel" id="stats-panel">
     <h2 class="panel-title">MISSION STATISTICS</h2>
     <div class="stats-filter-row">
       <span class="hint" style="margin:0;">Filter</span>
       <select id="stats-squad-filter" class="squad-select" title="Squad access differs by mode — 2-man bunkers can't be looted solo without a Warp Pack, which skews blended drop-chance stats">
-        <option value="all">All Missions</option>
+        <option value="all">All Squad Modes</option>
         <option value="solo">Solo (No Warp Pack)</option>
         <option value="solo_warp">Solo + Warp Pack</option>
         <option value="multiplayer">Multiplayer (2+)</option>
-        <option value="unknown">Unlabeled (older data)</option>
+        <option value="unknown">Unlabeled</option>
       </select>
+      <select id="stats-difficulty-filter" class="squad-select"></select>
+      <select id="stats-faction-filter" class="squad-select"></select>
+      <select id="stats-planet-filter" class="squad-select"></select>
     </div>
     <div class="tabs">
       <button class="tab-btn active" data-tab="mine">MY STATS</button>
@@ -80,11 +104,11 @@
   </section>
 </main>
 
-<main id="denom-page" class="hidden">
+<main id="log-page" class="hidden">
   <section class="panel">
-    <h2 class="panel-title">DROP SIZE TRACKER</h2>
-    <p class="hint">Some items give a variable amount per pickup. Tally the exact amount each time to find the real average instead of guessing — then apply it to Resource Value.</p>
-    <div id="denom-grid" class="poi-grid"></div>
+    <h2 class="panel-title">MISSION LOG</h2>
+    <p class="hint">Edit or delete previously saved missions.</p>
+    <div id="log-list" class="log-list"></div>
   </section>
 </main>
 
@@ -136,6 +160,19 @@
     </div>
 
     <div class="settings-group">
+      <h3>Backfill Existing Missions</h3>
+      <p class="hint">Fill in Difficulty / Faction / Planet on missions recorded before you started tracking them. Only touches missions currently missing that field — safe to run more than once, won't overwrite anything already labeled.</p>
+      <div class="row">
+        <select id="backfill-difficulty" class="squad-select"><option value="">— Skip Difficulty —</option></select>
+        <select id="backfill-faction" class="squad-select"><option value="">— Skip Faction —</option></select>
+        <select id="backfill-planet" class="squad-select"><option value="">— Skip Planet —</option></select>
+      </div>
+      <div class="row">
+        <button id="backfill-apply" class="btn">Apply to Missions Missing This Data</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <h3>Point of Interest Types</h3>
       <div id="poi-config-list" class="config-list"></div>
       <div class="row">
@@ -158,6 +195,34 @@
     </div>
 
     <div class="settings-group">
+      <h3>Difficulties</h3>
+      <div id="difficulty-config-list" class="config-list"></div>
+      <div class="row">
+        <input type="text" id="new-difficulty-name" placeholder="Name (e.g. Suicide Mission)" />
+        <button id="add-difficulty" class="btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Factions</h3>
+      <div id="faction-config-list" class="config-list"></div>
+      <div class="row">
+        <input type="text" id="new-faction-name" placeholder="Name" />
+        <button id="add-faction" class="btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>Planets</h3>
+      <p class="hint">Planets rotate through the galactic war — add ones as you play them.</p>
+      <div id="planet-config-list" class="config-list"></div>
+      <div class="row">
+        <input type="text" id="new-planet-name" placeholder="Name" />
+        <button id="add-planet" class="btn">Add</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <h3>Data</h3>
       <div class="row">
         <button id="export-json" class="btn">Export JSON</button>
@@ -173,6 +238,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=20260819"></script>
 </body>
 </html>
