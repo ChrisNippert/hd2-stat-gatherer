@@ -1077,7 +1077,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 
 .guide-callout {
   position: fixed;
-  width: min(360px, calc(100vw - 24px));
+  width: min(620px, calc(100vw - 24px));
   background: var(--bg-panel);
   --frame-color: var(--se-yellow-dim);
   padding: 18px;
@@ -1120,6 +1120,58 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   margin: 0;
   color: var(--text-light);
   line-height: 1.45;
+}
+
+.guide-media {
+  margin: 14px 0 0;
+}
+
+.guide-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.guide-gallery .guide-media {
+  margin: 0;
+}
+
+.guide-media img {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border-color);
+  background: #0b0d08;
+}
+
+.guide-media figcaption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.guide-media-hero {
+  margin-inline: auto;
+  max-width: 100%;
+  text-align: center;
+}
+
+.guide-media-hero img {
+  height: 220px;
+  object-fit: cover;
+  object-position: center;
+  box-shadow: 0 0 0 1px rgba(255, 227, 77, 0.28), 0 0 28px rgba(76, 127, 255, 0.28);
+}
+
+.guide-media-hero figcaption {
+  color: var(--se-yellow);
+  letter-spacing: 0.16em;
+  font-family: 'Staatliches', sans-serif;
+  font-size: 18px;
 }
 
 .guide-actions {

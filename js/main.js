@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824s';
-import * as state from './state.js?v=20260824s';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260824s';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260824s';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824x';
+import * as state from './state.js?v=20260824x';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260824x';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260824x';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -129,6 +129,10 @@ function currentGuideAddTarget() {
   return document.querySelector('#poi-grid button[data-action="poi-inc"]');
 }
 
+function guidePoiTarget(poiId) {
+  return document.querySelector(`#poi-grid .poi-card[data-poi="${poiId}"]`);
+}
+
 function buildQuickGuideSteps() {
   return [
     {
@@ -159,7 +163,73 @@ function buildQuickGuideSteps() {
     {
       target: () => document.querySelector('#poi-grid .poi-card'),
       title: 'Tally the Drops',
-      body: 'Each Minor Place has a slot count. Log what dropped from each slot so the stats stay tied to the right container type.',
+      body: 'Each Minor Place has a slot count. These POIs can spawn in slightly different formations, but they still fall under one of the three tracked types here. Log the special bunker/container/pod rewards from those slots — not loose samples around the area — so the stats stay tied to the right container type.',
+    },
+    {
+      target: () => guidePoiTarget('two_man_bunker'),
+      title: 'Bunker Example',
+      body: 'Bunkers can vary visually, and some lookalikes are not actually openable. Use this as a recognition aid for the kind of special loot POI the app means.',
+      gallery: [
+        {
+          src: 'assets/guide/bunker-ref-1.png',
+          alt: 'Bunker minimap example',
+          caption: 'Minimap',
+        },
+        {
+          src: 'assets/guide/bunker-ref-2.png',
+          alt: 'Bunker exterior example',
+          caption: 'What it can look like',
+        },
+        {
+          src: 'assets/guide/bunker-ref-3.png',
+          alt: 'Bunker interior loot example',
+          caption: 'Loot inside',
+        },
+      ],
+    },
+    {
+      target: () => guidePoiTarget('explodable_bunker'),
+      title: 'Container Example',
+      body: 'Containers can show up as blue utility-building style structures, in ground ditches, or tucked around similar utility buildings. You have to blow them open to reach the loot. Count the special loot in the container itself, not loose samples around it.',
+      gallery: [
+        {
+          src: 'assets/guide/container-ref-1.png',
+          alt: 'Container minimap example',
+          caption: 'Map icon',
+        },
+        {
+          src: 'assets/guide/container-ref-2.png',
+          alt: 'Container exterior example',
+          caption: 'One outside example',
+        },
+        {
+          src: 'assets/guide/container-ref-3.png',
+          alt: 'Container interior loot example',
+          caption: 'Loot inside',
+        },
+      ],
+    },
+    {
+      target: () => guidePoiTarget('loot_pod'),
+      title: 'Loot Pod Example',
+      body: 'Loot pods can vary around the edges too, but they still count as the same tracked Loot Pod type when the special reward pod is what you found.',
+      gallery: [
+        {
+          src: 'assets/guide/loot-pod-ref-1.png',
+          alt: 'Loot pod minimap example',
+          caption: 'Minimap',
+        },
+        {
+          src: 'assets/guide/loot-pod-ref-2.png',
+          alt: 'Loot pod exterior example',
+          caption: 'Pod outside',
+        },
+        {
+          src: 'assets/guide/loot-pod-ref-3.png',
+          alt: 'Loot pod opened example',
+          caption: 'Pod inside',
+        },
+      ],
     },
     {
       target: () => el('simplified-view-toggle')?.closest('.toggle-row'),
@@ -180,6 +250,15 @@ function buildQuickGuideSteps() {
       target: currentGuideMissionControlTarget,
       title: 'Final Submission Prompt',
       body: 'When you save a mission, we ask one last question about whether you think you picked up everything on the map. That keeps Minor Place frequency stats from being skewed by incomplete clears.',
+    },
+    {
+      target: () => document.querySelector('.brand'),
+      title: 'For Democracy',
+      body: 'Trust the three POI types, count the special loot cleanly, and let Managed Democracy handle the statistics. Now get out there and spread some data-backed liberty.',
+      imageSrc: 'assets/guide/for-democracy-hero.png',
+      imageAlt: 'Helldiver standing before Super Earth High Command',
+      imageCaption: 'FOR SUPER EARTH',
+      imageClass: 'guide-media-hero',
     },
   ].filter((step) => isVisible(step.target()));
 }
@@ -273,6 +352,21 @@ function renderQuickGuide() {
     <div class="guide-kicker">FIELD ORIENTATION ${quickGuide.index + 1} / ${quickGuide.steps.length}</div>
     <h3>${esc(step.title)}</h3>
     <p>${esc(step.body)}</p>
+    ${step.gallery?.length ? `
+      <div class="guide-gallery">
+        ${step.gallery.map((item) => `
+          <figure class="guide-media">
+            <img src="${esc(item.src)}" alt="${esc(item.alt || '')}" />
+            ${item.caption ? `<figcaption>${esc(item.caption)}</figcaption>` : ''}
+          </figure>
+        `).join('')}
+      </div>
+    ` : step.imageSrc ? `
+      <figure class="guide-media ${esc(step.imageClass || '')}">
+        <img src="${esc(step.imageSrc)}" alt="${esc(step.imageAlt || '')}" />
+        ${step.imageCaption ? `<figcaption>${esc(step.imageCaption)}</figcaption>` : ''}
+      </figure>
+    ` : ''}
     <div class="guide-actions">
       <button class="btn" type="button" data-action="guide-skip">Skip</button>
       ${quickGuide.index > 0 ? '<button class="btn" type="button" data-action="guide-prev">Back</button>' : ''}
@@ -913,14 +1007,14 @@ function submitPromptHtml() {
   return `
     <div class="item-popup-header">
       <div class="item-popup-heading">
-        <div class="item-popup-name">All Minor Places Collected?</div>
-        <div class="item-popup-poi">This only affects Minor Place frequency stats.</div>
+        <div class="item-popup-name">All Minor Place Loot Collected?</div>
+        <div class="item-popup-poi">This means the special bunker/container/pod loot, not loose samples nearby.</div>
       </div>
       <button class="btn btn-icon close-btn" data-action="submit-cancel" aria-label="Close">✕</button>
     </div>
-    <p>If you think this run cleared every Minor Place on the map, mark it here. If not, or if you're unsure, just tap the second option.</p>
+    <p>If you think this run cleared every Minor Place's special loot on the map, mark it here. Ignore loose samples around the POI — this question is only about the actual bunker/container/pod drops.</p>
     <div class="submit-popup-actions">
-      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">Yes — I think we got them all</button>
+      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">Yes — I think we got all MPOI loot</button>
       <button class="btn" type="button" data-action="submit-finish" data-collected="no">No / Not Sure</button>
     </div>
     <div class="submit-popup-cancel">
@@ -1135,8 +1229,8 @@ function statsHtml(stats) {
     title: `${i.name}: ${stats.items[i.id].totalValue.toFixed(0)} total value`,
   }));
   const poiScopeNote = stats.poiMissionCount === 0
-    ? '<p class="hint">Minor Place frequency uses only missions marked as having collected all Minor Places on the map. None of the currently-filtered missions are marked that way yet.</p>'
-    : `<p class="hint">Minor Place frequency is using ${stats.poiMissionCount} mission${stats.poiMissionCount === 1 ? '' : 's'} marked as having collected all Minor Places on the map.</p>`;
+    ? '<p class="hint">Minor Place frequency uses only missions marked as having collected all special bunker/container/pod loot on the map. Loose samples around POIs do not matter for this flag. None of the currently-filtered missions are marked that way yet.</p>'
+    : `<p class="hint">Minor Place frequency is using ${stats.poiMissionCount} mission${stats.poiMissionCount === 1 ? '' : 's'} marked as having collected all special bunker/container/pod loot on the map. Loose samples around POIs do not matter for this flag.</p>`;
 
   return `
     <div class="stats-summary">
@@ -1373,7 +1467,7 @@ function missionEditFormHtml(mission) {
       </div>
       <label class="mission-check">
         <input type="checkbox" class="log-edit-checkbox" data-field="allMinorPlacesCollected"${mission.allMinorPlacesCollected ? ' checked' : ''} />
-        <span>I think this mission collected all Minor Places on the map</span>
+        <span>I think this mission collected all special loot from its Minor Places (not loose nearby samples)</span>
       </label>
       ${config.poiTypes.map((p) => `
         <div class="log-edit-poi">
@@ -1541,7 +1635,7 @@ function globalMissionDetailHtml(m) {
   return `
     <div class="log-view-detail hidden">
       <div class="row">
-        <span class="denom-label">All Minor Places Collected</span>
+        <span class="denom-label">All Minor Place Loot Collected</span>
         <span class="log-view-value">${m.allMinorPlacesCollected ? 'Yes' : 'No'}</span>
       </div>
       ${config.poiTypes.map((p) => `
