@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260823c';
-import * as state from './state.js?v=20260823c';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260823c';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260823c';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260823r';
+import * as state from './state.js?v=20260823r';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260823r';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260823r';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -10,6 +10,10 @@ let currentMission = state.getCurrentMission(config);
 let globalMissions = null; // lazily fetched
 let globalDenomTally = null; // lazily fetched, pooled across all divers: { itemId: { denom: count } }
 let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all' };
+// minPois: 0 means "any" (unfiltered) — matches how squadMode/difficulty/etc
+// use 'all' as their unfiltered sentinel, just numeric since POI count isn't
+// a fixed taxonomy id.
+let globalLogFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all', minPois: 0 };
 // In-memory only (not persisted): a LIFO stack of denominations picked per
 // poi+item on the Tally page, so repeated "−" presses undo picks in the exact
 // reverse order they were made (pick +3 then +2, and "−" "−" correctly rolls
@@ -17,6 +21,13 @@ let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet
 // recent pick. Resets on reload, which is fine — that's a fresh-session edge
 // case, not the common misclick.
 let denomPickStacks = {};
+// In-memory only (not persisted): which POI cards have their item-tile grid
+// manually expanded, on a short viewport where it's collapsed by default —
+// see the .is-expanded / max-height:740px handling in style.css. Only
+// relevant to Simplified View's tile grid; classic mode's inline rows are
+// the only way to tally there (guided flow never fires with Simplified off),
+// so they're never collapsed regardless of this set's contents.
+let expandedPoiCards = new Set();
 
 const el = (id) => document.getElementById(id);
 
@@ -274,6 +285,12 @@ function itemRowControlsHtml(poiId, itemId) {
 
 function renderPoiGrid() {
   const grid = el('poi-grid');
+  // Classic/desktop item-row-desktop rows need more per-card width than
+  // Simplified's compact 2-column tiles do (a fixed name column + a
+  // denom-pick-group like "+100 +1000" doesn't fit in the same ~260px a
+  // tile grid is happy with — cards that narrow made item names overlap
+  // their own controls) — see .poi-grid-desktop in style.css.
+  grid.classList.toggle('poi-grid-desktop', !simplifiedView);
   if (config.poiTypes.length === 0) {
     grid.innerHTML = '<p class="empty-note">No POI types configured. Try Settings → Reset All Local Data to restore the defaults.</p>';
     return;
@@ -283,17 +300,34 @@ function renderPoiGrid() {
     const filled = slotsFilled(p.id);
     const totalSlots = count * p.slots;
     const pct = totalSlots > 0 ? Math.min(100, (filled / totalSlots) * 100) : 0;
+    const expanded = expandedPoiCards.has(p.id);
     return `
-      <div class="poi-card" data-poi="${p.id}">
+      <div class="poi-card${expanded ? ' is-expanded' : ''}" data-poi="${p.id}">
         <div class="poi-card-header">
           <span class="poi-name">${esc(p.name)}</span>
-          <span class="poi-slots">${p.slots} SLOT${p.slots === 1 ? '' : 'S'}</span>
+          <span class="poi-header-right">
+            <span class="poi-slots">${p.slots} SLOT${p.slots === 1 ? '' : 'S'}</span>
+            ${simplifiedView ? `<button class="poi-expand-toggle" type="button" data-action="poi-toggle-expand" aria-label="${expanded ? 'Hide' : 'Show'} items">${expanded ? '▴' : '▾'}</button>` : ''}
+          </span>
         </div>
         <div class="poi-count-row">
           <button class="btn btn-count minus" data-action="poi-dec">−</button>
           <span class="poi-count">${count}</span>
           <button class="btn btn-count plus" data-action="poi-inc">+1 FOUND</button>
         </div>
+        ${simplifiedView ? `
+          <div class="poi-collapsed-summary">
+            ${config.itemTypes.map((i) => {
+              const tileCount = currentMission.itemDrops[p.id]?.[i.id] || 0;
+              return `
+                <span class="poi-collapsed-chip" data-item="${i.id}">
+                  ${iconBlock(i.icon)}
+                  <span class="poi-collapsed-chip-count">${tileCount}</span>
+                </span>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
         <div class="poi-items${simplifiedView ? '' : ' poi-items-desktop'}">
           ${config.itemTypes.map((i) => {
             if (simplifiedView) {
@@ -394,15 +428,13 @@ function renderQuickAddBar() {
   if (!bar) return;
   bar.classList.toggle('hidden', !simplifiedView);
   if (!simplifiedView) return;
-  bar.innerHTML = config.poiTypes.map((p) => `
-    <button class="quick-add-btn" type="button" data-action="quick-add" data-poi="${p.id}">+ ${esc(p.name)}</button>
-  `).join('');
+  bar.innerHTML = `<button class="quick-add-btn" type="button" data-action="quick-add-open">+ ADD POINT OF INTEREST</button>`;
 }
 
 on('quick-add-bar', 'click', (e) => {
-  const btn = e.target.closest('button[data-action="quick-add"]');
+  const btn = e.target.closest('button[data-action="quick-add-open"]');
   if (!btn) return;
-  foundPoi(btn.dataset.poi);
+  startPoiPick();
 });
 
 on('poi-grid', 'click', (e) => {
@@ -412,7 +444,12 @@ on('poi-grid', 'click', (e) => {
   const poiId = card.dataset.poi;
   const action = btn.dataset.action;
 
-  if (action === 'poi-inc') {
+  if (action === 'poi-toggle-expand') {
+    if (expandedPoiCards.has(poiId)) expandedPoiCards.delete(poiId);
+    else expandedPoiCards.add(poiId);
+    renderPoiGrid();
+    return;
+  } else if (action === 'poi-inc') {
     foundPoi(poiId);
     return;
   } else if (action === 'poi-dec') {
@@ -454,6 +491,26 @@ let openItemPopup = null;
 function itemPopupHtml() {
   const { mode, poiId, itemId } = openItemPopup;
   const p = config.poiTypes.find((x) => x.id === poiId);
+
+  if (mode === 'poi-pick') {
+    return `
+      <div class="item-popup-header">
+        <div class="item-popup-heading">
+          <div class="item-popup-name">Add Point of Interest</div>
+          <div class="item-popup-poi">What did you find?</div>
+        </div>
+        <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
+      </div>
+      <div class="poi-items">
+        ${config.poiTypes.map((x) => `
+          <button class="item-tile" type="button" data-action="poi-pick-select" data-poi="${x.id}">
+            <span class="item-tile-name">${esc(x.name)}</span>
+            <span class="item-tile-sub">${x.slots} SLOT${x.slots === 1 ? '' : 'S'}</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
+  }
 
   if (mode === 'guided') {
     const foundCount = currentMission.poiCounts[poiId] || 0;
@@ -542,6 +599,10 @@ function startGuidedFlow(poiId) {
   openPopup({ mode: 'guided', poiId, itemId: null });
 }
 
+function startPoiPick() {
+  openPopup({ mode: 'poi-pick' });
+}
+
 function closeItemPopup() {
   openItemPopup = null;
   hideAnimated(el('item-popup'));
@@ -608,6 +669,11 @@ on('item-popup', 'click', (e) => {
   }
   if (!openItemPopup) return;
 
+  if (openItemPopup.mode === 'poi-pick') {
+    if (action === 'poi-pick-select') foundPoi(btn.dataset.poi);
+    return;
+  }
+
   if (openItemPopup.mode === 'guided') {
     if (action === 'slot-pick-item') guidedPickItem(btn.dataset.item);
     else if (action === 'slot-pick-amount') guidedPickAmount(btn.dataset.denom);
@@ -627,6 +693,7 @@ on('new-mission-btn', 'click', async () => {
   const { completed, fresh } = state.completeMission(config);
   currentMission = fresh;
   closeItemPopup();
+  closeMissionPanel();
   renderPoiGrid();
   renderStats();
   renderSquadModeSelect();
@@ -639,6 +706,7 @@ on('clear-mission-btn', 'click', () => {
   if (!confirm('Discard the current in-progress mission without saving it? This cannot be undone.')) return;
   currentMission = state.discardCurrentMission(config);
   closeItemPopup();
+  closeMissionPanel();
   renderPoiGrid();
   renderSquadModeSelect();
   renderMissionMetaSelects();
@@ -967,6 +1035,11 @@ async function refreshGlobalStats() {
   try {
     globalMissions = await fetchMissions(serverUrl);
     renderStats();
+    // Global Missions (the Missions page's other tab) reads the exact same
+    // globalMissions array — refresh it here too whenever it's visible, same
+    // reasoning as Global Stats: a mission deleted/added elsewhere shouldn't
+    // sit stale until the tab happens to get re-clicked.
+    if (!el('log-global')?.classList.contains('hidden')) renderGlobalLogPage();
   } catch {
     el('stats-global').innerHTML = '<p class="empty-note">Could not reach server for global stats.</p>';
   }
@@ -1136,6 +1209,141 @@ on('log-list', 'click', async (e) => {
   }
 });
 
+/* ---------------- Global Missions (read-only, all divers) ---------------- */
+// Shares globalMissions with Global Stats (same fetch, same data) — this is
+// just a per-mission list/detail view of the identical dataset Global Stats
+// aggregates, filtered the same way (filterMissions, same filter shape plus
+// minPois). No edit/delete here — ownership is per-clientId server-side, so
+// another diver's mission genuinely can't be touched from here, only viewed.
+
+function renderGlobalLogFilterSelects() {
+  populateSelectOptions(el('global-log-difficulty-filter'), config.difficulties, { allLabel: 'All Difficulties', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('global-log-faction-filter'), config.factions, { allLabel: 'All Factions', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('global-log-planet-filter'), config.planets, { allLabel: 'All Planets', unknownLabel: 'Unlabeled' });
+}
+
+function globalMissionDetailHtml(m) {
+  return `
+    <div class="log-view-detail hidden">
+      ${config.poiTypes.map((p) => `
+        <div class="log-edit-poi">
+          <div class="row">
+            <span class="denom-label">${esc(p.name)}</span>
+            <span class="log-view-value">${m.poiCounts?.[p.id] || 0}</span>
+          </div>
+          <div class="log-edit-items">
+            ${config.itemTypes.map((i) => `
+              <div class="item-row">
+                ${iconBlock(i.icon)}
+                <span class="item-name">${esc(i.name)}</span>
+                <span class="log-view-value">${m.itemDrops?.[p.id]?.[i.id] || 0}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function globalMissionCardHtml(m) {
+  const diverShort = (m.clientId || '').slice(0, 8) || 'unknown';
+  const poiSummary = config.poiTypes
+    .map((p) => ({ name: p.name, count: m.poiCounts?.[p.id] || 0 }))
+    .filter((x) => x.count > 0)
+    .map((x) => `${x.count}x ${x.name}`)
+    .join(', ') || 'No POIs tallied';
+  return `
+    <div class="log-card" data-id="${esc(m.id)}">
+      <div class="log-card-header">
+        <span class="log-card-date">${esc(new Date(m.startedAt).toLocaleString())} — Diver ${esc(diverShort)}</span>
+        <div class="log-card-tags">
+          <span class="log-tag">${esc(SQUAD_MODE_LABELS[m.squadMode || 'unknown'] || m.squadMode)}</span>
+          <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
+          <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
+          <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
+          <span class="log-tag">${totalPois(m)} POI${totalPois(m) === 1 ? '' : 'S'}</span>
+        </div>
+      </div>
+      <div class="log-card-summary">${esc(poiSummary)}</div>
+      <div class="log-card-actions">
+        <button class="btn" type="button" data-action="global-log-view">View Details</button>
+      </div>
+      ${globalMissionDetailHtml(m)}
+    </div>
+  `;
+}
+
+// Sorted newest-first (the server returns oldest-first) and capped — global
+// mission history has no natural ceiling the way one diver's own history
+// does, so a popular server could realistically accumulate thousands of
+// rows over time. Capping the render (not the fetch/filter) keeps the DOM
+// bounded without needing real pagination yet.
+const GLOBAL_LOG_RENDER_CAP = 200;
+
+function renderGlobalLogPage() {
+  const container = el('global-log-list');
+  if (!container) return;
+  if (!serverUrl) {
+    container.innerHTML = '<p class="empty-note">Set a server in Settings to see missions from every diver.</p>';
+    return;
+  }
+  if (!globalMissions) {
+    container.innerHTML = '<p class="empty-note">Loading…</p>';
+    return;
+  }
+  const filtered = filterMissions(globalMissions, globalLogFilters).slice().sort((a, b) => b.startedAt - a.startedAt);
+  if (filtered.length === 0) {
+    container.innerHTML = '<p class="empty-note">No missions match these filters.</p>';
+    return;
+  }
+  const shown = filtered.slice(0, GLOBAL_LOG_RENDER_CAP);
+  const truncatedNote = filtered.length > GLOBAL_LOG_RENDER_CAP
+    ? `<p class="hint">Showing the ${GLOBAL_LOG_RENDER_CAP} most recent of ${filtered.length} matching missions — narrow the filters to see more specific ones.</p>`
+    : '';
+  container.innerHTML = truncatedNote + shown.map(globalMissionCardHtml).join('');
+}
+
+on('global-log-list', 'click', (e) => {
+  const btn = e.target.closest('button[data-action="global-log-view"]');
+  if (!btn) return;
+  const card = btn.closest('.log-card');
+  const detail = card.querySelector('.log-view-detail');
+  const isNowHidden = detail.classList.toggle('hidden');
+  btn.textContent = isNowHidden ? 'View Details' : 'Hide Details';
+});
+
+on('global-log-squad-filter', 'change', (e) => { globalLogFilters.squadMode = e.target.value; renderGlobalLogPage(); });
+on('global-log-difficulty-filter', 'change', (e) => { globalLogFilters.difficulty = e.target.value; renderGlobalLogPage(); });
+on('global-log-faction-filter', 'change', (e) => { globalLogFilters.faction = e.target.value; renderGlobalLogPage(); });
+on('global-log-planet-filter', 'change', (e) => { globalLogFilters.planet = e.target.value; renderGlobalLogPage(); });
+on('global-log-poi-filter', 'change', (e) => { globalLogFilters.minPois = parseInt(e.target.value, 10) || 0; renderGlobalLogPage(); });
+
+// Separate class/handler from the Stats page's .tab-btn (My Stats/Global
+// Stats) — reusing that class and its document-wide querySelectorAll would
+// have made this tab pair fight over the same "deactivate every .tab-btn on
+// the page" sweep and the same mine/global element ids.
+document.querySelectorAll('.log-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    document.querySelectorAll('.log-tab-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.logtab;
+    el('log-mine').classList.toggle('hidden', tab !== 'mine');
+    el('log-global').classList.toggle('hidden', tab !== 'global');
+    if (tab === 'global') {
+      renderGlobalLogFilterSelects();
+      // refreshGlobalStats() already calls renderGlobalLogPage() itself once
+      // #log-global is visible (see above) — only need the explicit call
+      // here for the offline case, where it returns early without rendering.
+      if (serverUrl) {
+        await refreshGlobalStats();
+      } else {
+        renderGlobalLogPage();
+      }
+    }
+  });
+});
+
 /* ---------------- Settings panel ---------------- */
 
 function openSettings() {
@@ -1150,6 +1358,29 @@ on('settings-btn', 'click', openSettings);
 on('client-badge', 'click', openSettings);
 on('close-settings', 'click', closeSettings);
 on('settings-overlay', 'click', closeSettings);
+
+/* ---------------- Mission setup drawer (narrow viewports) ---------------- */
+// Below 1300px, mission setup (squad/difficulty/faction/planet + actions)
+// moves off-canvas behind the hamburger instead of stacking above the POI
+// cards — see the max-width:1299px block in style.css. At >=1300px this is
+// a no-op: #mission-config-btn is CSS-hidden there and .mission-panel is
+// laid out as the sidebar instead, unaffected by the is-open class.
+// Unlike settings/item-popup, .mission-panel itself never gets the
+// .hidden class — it has to stay a normal, always-visible sidebar column
+// at >=1300px, so only its transform-driven .is-open class is toggled here;
+// the hidden/showAnimated dance is reserved for the overlay, which really
+// is narrow-viewport-only.
+function openMissionPanel() {
+  el('mission-panel').classList.add('is-open');
+  showAnimated(el('mission-panel-overlay'));
+}
+function closeMissionPanel() {
+  el('mission-panel').classList.remove('is-open');
+  hideAnimated(el('mission-panel-overlay'));
+}
+on('mission-config-btn', 'click', openMissionPanel);
+on('close-mission-panel', 'click', closeMissionPanel);
+on('mission-panel-overlay', 'click', closeMissionPanel);
 
 on('backfill-apply', 'click', async () => {
   const difficulty = el('backfill-difficulty').value;
@@ -1261,6 +1492,7 @@ on('import-json-input', 'change', async (e) => {
     renderSquadModeSelect();
     renderMissionMetaSelects();
     renderStatsFilterSelects();
+    renderGlobalLogFilterSelects();
     renderBackfillSelects();
     if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
     toast('Import complete.', 'success');
@@ -1293,6 +1525,7 @@ function init() {
   safe(renderPoiGrid, 'renderPoiGrid');
   safe(renderMissionMetaSelects, 'renderMissionMetaSelects');
   safe(renderStatsFilterSelects, 'renderStatsFilterSelects');
+  safe(renderGlobalLogFilterSelects, 'renderGlobalLogFilterSelects');
   safe(renderBackfillSelects, 'renderBackfillSelects');
   safe(renderStats, 'renderStats');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');

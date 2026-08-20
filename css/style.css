@@ -247,11 +247,16 @@ main {
   gap: 22px;
 }
 
-/* Sticks to the top of the viewport once scrolled past its normal position,
-   so logging a find never requires scrolling back up through the mission
-   meta panel or down past other POI cards to reach the right one's own
-   "+1 FOUND" button — one tap from wherever you're scrolled to. */
-.quick-add-bar {
+/* Sticky strip for the mission-setup hamburger only (narrow viewports,
+   see #mission-config-btn) — a direct child of #tally-page, independent of
+   both the sidebar/drawer's column and the POI panel, so its presence
+   never affects either one's height. The Add Point of Interest button
+   used to live in here too, but that meant the sidebar's effective height
+   shifted depending on whether Simplified View (which shows/hides that
+   button) was on — moved into #poi-panel itself instead (see .quick-add-bar
+   below) so toggling Simplified View only ever affects the POI panel,
+   never the sidebar next to it. */
+.mobile-toolbar {
   position: sticky;
   top: 0;
   z-index: 50;
@@ -259,6 +264,38 @@ main {
   gap: 8px;
   padding: 10px;
   margin: -22px -22px 0;
+  background: var(--bg-panel);
+  border-bottom: 2px solid var(--se-yellow-dim);
+}
+
+/* Opens the mission-setup panel as a slide-out drawer instead of it eating
+   a full-width row above the POI cards — below 1300px there isn't room for
+   both the sidebar layout and a comfortably-sized POI area, so config
+   moves off-canvas here. Applies regardless of Simplified View, since a
+   narrow window is cramped either way. Hiding the whole toolbar strip
+   (not just the button) above that width is enough on its own now — the
+   toolbar has nothing else in it, so there's no empty-strip case left to
+   guard against the way there was when the Add POI button also lived here. */
+#mission-config-btn { flex: 0 0 auto; }
+
+@media (min-width: 1300px) {
+  .mobile-toolbar { display: none; }
+}
+
+/* Lives inside #poi-panel now (previously in .mobile-toolbar, spanning
+   the full page width above both the sidebar and the POI panel) — see the
+   .mobile-toolbar comment above for why. Bleeds to the panel's own edges
+   (not the page's) via a negative margin matching #poi-panel's own 20px
+   padding, so it still reads as a full-width sticky header bar, just
+   scoped to this one section instead of the whole page. */
+.quick-add-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  margin: -20px -20px 16px;
   background: var(--bg-panel);
   border-bottom: 2px solid var(--se-yellow-dim);
 }
@@ -306,26 +343,6 @@ main {
   padding-bottom: 10px;
 }
 
-/* Puts the Simplified View toggle right next to the POI panel's own title
-   instead of the panel-title's default full-width underline — the wrapper
-   takes over that border so it spans both the title and the toggle. */
-.poi-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 10px;
-}
-
-.poi-panel-header .panel-title {
-  margin-bottom: 0;
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
 /* ---------- Mission panel ---------- */
 .mission-panel {
   display: flex;
@@ -343,13 +360,18 @@ main {
    the POI cards get a meaningfully wider container to work with — their
    item names were wrapping onto two lines in the inline-row layout because
    3 cards had to share a comparatively narrow 1150px total width. Below
-   this width there isn't room for a usable sidebar (a ~300px column plus a
-   readable POI area needs real estate a phone/small-tablet doesn't have),
-   so it stays the original single-column stack there. Applies purely by
-   viewport width — independent of the Simplified View toggle, since a wide
-   window benefits from the extra room regardless of which layout mode
-   that's set to. */
-@media (min-width: 960px) {
+   this width, a sidebar plus a readable POI area doesn't actually have
+   room to breathe — originally set at 960px, but that's also exactly
+   "half of a 1920×1080 monitor" (a common window-snapped width, not just a
+   phone/tablet one), and a sidebar squeezed into that half was forcing the
+   3 POI cards down to 1-per-row, needing a scroll to see cards 2 and 3.
+   Raised to 1300px so that width (and anything narrower) gets the
+   hamburger-triggered off-canvas drawer instead (see the max-width:1299px
+   block below #mission-panel-overlay), which gives the POI cards the full
+   width to lay out 3-across instead. Applies purely by viewport width —
+   independent of the Simplified View toggle, since a wide window benefits
+   from the extra room regardless of which layout mode that's set to. */
+@media (min-width: 1300px) {
   #tally-page {
     max-width: 1700px;
     display: grid;
@@ -357,7 +379,6 @@ main {
     align-items: start;
   }
 
-  #tally-page > .quick-add-bar { grid-column: 1 / -1; }
   #tally-page > .mission-panel { grid-column: 1; }
   #tally-page > #poi-panel { grid-column: 2; }
 
@@ -374,6 +395,50 @@ main {
     width: 100%;
   }
 }
+
+/* Below the sidebar breakpoint, mission setup lives behind the hamburger
+   (#mission-config-btn, in .mobile-toolbar) as an off-canvas drawer instead
+   of stacking inline above the POI cards — that inline stack is exactly
+   what was eating the vertical space that kept "Add Point of Interest" +
+   the POI cards from fitting on one phone screen. Same drawer treatment as
+   #settings-panel (see below), just anchored to the left instead of the
+   right so it doesn't collide with that one. Applies on both Simplified
+   View and classic layout — it's a viewport-width concern, not a layout-
+   mode one. */
+@media (max-width: 1299px) {
+  #tally-page > .mission-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: min(340px, 85vw);
+    margin: 0;
+    z-index: 101;
+    overflow-y: auto;
+    border-radius: 0;
+    clip-path: none;
+    flex-direction: column;
+    align-items: stretch;
+    border-right: 2px solid var(--se-yellow-dim);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+
+  #tally-page > .mission-panel.is-open { transform: translateX(0); }
+
+  #tally-page > .mission-panel .mission-meta-grid,
+  #tally-page > .mission-panel .mission-actions {
+    flex-direction: column;
+  }
+  #tally-page > .mission-panel .squad-select,
+  #tally-page > .mission-panel .btn {
+    width: 100%;
+  }
+
+  .mission-panel-close { display: inline-flex; }
+}
+
+.mission-panel-close { display: none; }
 
 .timer-label {
   font-size: 15px;
@@ -408,10 +473,26 @@ main {
 }
 
 /* ---------- POI grid ---------- */
+/* minmax's floor is 260px, not the more spacious 300px it used to be —
+   at "half a 1920 monitor" (~960px) with the sidebar gone (see the
+   1300px breakpoint above) there's only ~860px of actual card-grid width
+   once main/panel padding is subtracted, and 300px cards would only just
+   barely fit 2 across, wrapping the 3rd POI card to its own row instead
+   of sitting beside the other two — 260px comfortably fits all 3 side by
+   side there instead. */
 .poi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 18px;
+}
+
+/* Classic/desktop mode (Simplified View off) needs a wider floor than
+   Simplified's tile grid does — item-row-desktop's fixed 36px-icon + 1fr-
+   name + auto-controls layout doesn't have room to shrink the way a tile
+   does, and forcing it into a 260px card wrapped/overlapped item names
+   with their own denom-pick buttons. */
+.poi-grid.poi-grid-desktop {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
 .poi-card {
@@ -429,7 +510,26 @@ main {
 }
 
 .poi-name { font-family: 'Staatliches', sans-serif; font-size: 22px; color: var(--se-yellow); }
+.poi-header-right { display: flex; align-items: center; gap: 8px; }
 .poi-slots { font-size: 15px; color: var(--text-dim); letter-spacing: 0.1em; }
+
+/* Only rendered in Simplified View. Inert (no visual effect) above the
+   max-height:740px tier, since that's the only place .poi-items ever
+   actually collapses — see the .is-expanded rule there. Hidden outright
+   above that tier so it doesn't invite tapping a control that wouldn't do
+   anything visible on a spacious screen. */
+.poi-expand-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-dim);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
 
 .poi-count-row {
   display: flex;
@@ -447,14 +547,75 @@ main {
 
 .poi-count-row .plus { flex: 1; width: auto; font-size: 16px; }
 
-/* Tap-to-tally tiles (mobile default) — one per item type on a POI card.
-   Tapping opens #item-popup (below) rather than exposing +/- controls
-   inline; this is what keeps a card with 6 item types compact instead of a
-   tall stack of rows on a small screen. `js/main.js` decides mobile vs
-   desktop by `window.innerWidth` (MOBILE_BREAKPOINT_PX, currently 640) and
-   adds `.poi-items-desktop` to switch to the always-expanded-rows layout
-   below — desktop has the room for it and a tap-to-open popup is one extra
-   step for no benefit there. */
+/* Read-only icon+count chips shown in place of the full item-tile grid
+   while a card is collapsed (see the max-width:480px, max-height:740px
+   tier below) — a quick "what's in here so far" glance without expanding.
+   All 6 item types always show, in one row (no wrap) of equal-width
+   columns, not just the ones with a nonzero count — the point is seeing
+   the whole set at a glance the same way the expanded tile grid would,
+   just compressed to one row instead of a 2×3 grid. Plain <span>s, not
+   buttons — deliberately not clickable, since tapping one would be
+   ambiguous (which item's popup should it open?) and the real editing
+   surface is either the guided "+1 FOUND" flow or expanding the card to
+   reach the actual tiles. Hidden outside the compression tier (and outside
+   Simplified View, see the JS — classic mode never collapses, so never
+   renders this at all) since it has nothing useful to add once the full
+   tile grid is already visible. */
+.poi-collapsed-summary { display: none; gap: 2px; margin-bottom: 4px; }
+
+/* No border (that plus its padding was what left too little room for
+   icon+number once real 2-3 digit counts showed up, wrapping the content
+   — see the nowrap/overflow note below), but a flat `background` stays —
+   removing it entirely alongside the border made each chip read as a tiny
+   floating icon+number with a lot of bare card background around it,
+   which is what followup feedback ("its still horizontally not full on
+   the phone") was pointing at: 6 sparse floating pairs don't visually read
+   as filling the row the way 6 solid tiles do, even though each one
+   *does* occupy an equal 1/6 flex share underneath. The background gives
+   each column a visible filled edge so the row reads as one continuous
+   strip, closer to the bordered-pill look from the first version, just
+   without the border itself (and its padding) actually being necessary
+   for that — the border was never what "filled" the space, the background
+   was. `white-space: nowrap` + `overflow: hidden` on both the chip and the
+   count guard against the actual failure mode from before: a squeezed
+   flex item wraps its inline content by default when there's no room
+   (icon and number splitting onto two lines, or a 2-3 digit number
+   breaking mid-number) — that wrap, multiplied across 3 collapsed cards,
+   is what "too long vertically" actually was, not intentional extra
+   height. */
+.poi-collapsed-chip {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--bg-input);
+  padding: 4px 1px;
+  font-family: 'Oswald', sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.poi-collapsed-chip .item-icon,
+.poi-collapsed-chip img.item-icon {
+  height: 13px;
+  width: 13px;
+  max-width: 13px;
+  flex: 0 0 auto;
+}
+
+.poi-collapsed-chip .item-icon { font-size: 10px; }
+
+.poi-collapsed-chip-count { font-size: 11px; font-weight: 700; color: var(--se-yellow); white-space: nowrap; }
+
+/* Tap-to-tally tiles — one per item type on a POI card. Tapping opens
+   #item-popup (below) rather than exposing +/- controls inline; this is
+   what keeps a card with 6 item types compact instead of a tall stack of
+   rows on a small screen. `js/main.js` adds `.poi-items-desktop` whenever
+   the Simplified View toggle is off, switching to the always-expanded-rows
+   layout below — that mode has the room for it and a tap-to-open popup is
+   one extra step for no benefit there. */
 .poi-items {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -525,6 +686,11 @@ main {
 
 .item-tile-name { font-size: 16px; color: var(--text-light); text-align: center; line-height: 1.3; }
 
+/* Slot-count subtitle under a POI type's name in the "Add Point of
+   Interest" picker — poiTypes have no icon, so the tile is just name +
+   this instead of icon + name. */
+.item-tile-sub { font-size: 12px; color: var(--text-dim); text-align: center; letter-spacing: 0.05em; }
+
 .item-tile-count {
   position: absolute;
   top: 6px;
@@ -540,6 +706,139 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Vertical compression for phone-scale viewports — the header, nav, the
+   mobile toolbar, and several POI cards don't all fit without scrolling,
+   especially with 3+ POI types on screen at once. Tightens padding/gaps/
+   text instead of hiding POI content, so everything needed to log a find
+   during a mission stays reachable in one glance rather than a scroll.
+   Tap targets (.btn/.item-tile min-heights) are left alone — those are
+   accessibility minimums, not the thing eating the space. The header/nav
+   are shared chrome across every page, not just Tally, but they're also
+   the single biggest fixed cost above the POI cards, so they're
+   compressed here too rather than left at full size while everything
+   below them gets squeezed.
+   Triggers on max-width OR max-height, not height alone. Originally
+   height-only (a short landscape phone is just as cramped as a short
+   portrait one), but real portrait phones turned out to blow straight
+   through a height-only threshold — reported "nothing is collapsing":
+   most current phones (iPhone 12 and up: 844-932px, most Android flagships:
+   800-915px) report an innerHeight well above what a 740px cutoff assumed,
+   since mobile browsers size the layout viewport to the *full* screen
+   (this app's `width=device-width` viewport meta gets the large/expanded
+   viewport, not something reduced for a collapsible address bar) — a
+   height-only query almost never fired on an actual phone held upright.
+   Width doesn't have that problem: virtually every phone in portrait is
+   ≤480px CSS-wide regardless of how tall it reports, so it's the reliable
+   signal there; max-height stays as the second condition for landscape
+   phones and short desktop windows, where width alone wouldn't catch it. */
+@media (max-width: 480px), (max-height: 740px) {
+  .hud-header { padding: 8px 16px; gap: 8px; }
+  .brand-star { font-size: 22px; }
+  .brand-text h1 { font-size: 22px; }
+  .brand-sub { font-size: 11px; letter-spacing: 0.15em; }
+  .client-badge { padding: 4px 10px; min-height: 36px; }
+  .client-badge .label { font-size: 11px; }
+  .client-badge span#client-id-display { font-size: 14px; }
+  .sync-status { padding: 4px 8px; font-size: 12px; }
+  .toggle-row-header .toggle-switch { width: 32px; height: 18px; min-width: 32px; }
+  .toggle-row-header .toggle-switch::before { width: 12px; height: 12px; }
+  .toggle-row-header input:checked ~ .toggle-switch::before { transform: translateX(14px); }
+  .toggle-row-header .toggle-label { font-size: 12px; }
+  .page-nav { padding: 0 16px; }
+  .page-nav-btn { padding: 8px 14px; min-height: 40px; font-size: 14px; }
+
+  main { padding: 10px; gap: 10px; }
+  .mobile-toolbar { padding: 5px; margin: -10px -10px 0; }
+  #poi-panel { padding: 12px; }
+  .quick-add-bar { padding: 8px; margin: -12px -12px 12px; }
+  #poi-panel > .panel-title { margin-bottom: 6px; padding-bottom: 5px; font-size: 20px; }
+  #poi-panel > .hint { display: none; }
+  .poi-grid { gap: 8px; }
+  .poi-card { padding: 8px; }
+  .poi-card-header { margin-bottom: 4px; }
+  .poi-name { font-size: 19px; }
+  .poi-slots { font-size: 13px; }
+  .poi-count-row { margin-bottom: 6px; }
+  .poi-count { font-size: 24px; min-width: 36px; }
+  .poi-items { gap: 6px; margin-bottom: 0; }
+  .item-tile { min-height: 72px; padding: 8px 6px; gap: 4px; }
+  .item-tile .item-icon,
+  .item-tile img.item-icon { height: 30px; width: 30px; max-width: 30px; }
+  .item-tile .item-icon { font-size: 20px; }
+  .item-tile-name { font-size: 13px; }
+  .item-tile-sub { font-size: 10px; }
+
+  /* The single biggest remaining lever on a short phone screen: collapse
+     each POI card's item-tile grid to just its header + count row by
+     default (a ~340px card shrinks to ~90px), so all 3 POI cards can be
+     seen — and "+1 FOUND" tapped — without scrolling at all. Only ever
+     applies to Simplified View's plain .poi-items (excluded via
+     :not(.poi-items-desktop)) — classic mode's "+1 FOUND" doesn't open the
+     guided popup, so its inline rows are the *only* way to tally there and
+     must never be hidden regardless of screen size. Simplified View's
+     guided popup (the primary path — tap +1 FOUND, pick items in the
+     popup) works identically whether a card is collapsed or expanded;
+     this only affects the secondary "tap a tile directly on the card"
+     path, which .poi-expand-toggle exists to still make reachable in the
+     rare case it's actually wanted (a quick fix to one specific item
+     without walking the whole guided flow again). */
+  .poi-expand-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .poi-card:not(.is-expanded) .poi-items:not(.poi-items-desktop) { display: none; }
+  .poi-card:not(.is-expanded) .poi-progress,
+  .poi-card:not(.is-expanded) .poi-progress-label { display: none; }
+  /* The chip summary is the collapsed state's replacement for what the
+     hidden .poi-items grid would otherwise show — flips off the moment a
+     card expands (falls back to the default display:none from the base
+     rule above, since this selector no longer matches). */
+  .poi-card:not(.is-expanded) .poi-collapsed-summary { display: flex; }
+}
+
+/* Spreads the 3 POI cards down the rest of the phone screen instead of
+   sitting at their compact collapsed height with dead space below — a
+   collapsed card is only ~90px tall, so on a typical phone there's easily
+   300-400px of unused space left under them otherwise. Scoped to narrow
+   *width* specifically (not the broader max-height:740px OR condition the
+   collapse/compression tier above uses) — a short-but-wide window (a short
+   desktop browser, a landscape phone) can still fit the POI grid as
+   multiple columns via its normal auto-fit grid, and forcing that down to
+   a single stretched column there would be a regression, not an
+   improvement. A true narrow phone width never fits more than 1 column
+   anyway (even at .poi-grid's 260px minmax), so switching it to a flex
+   column here changes nothing about its layout, only adds the ability to
+   distribute extra space.
+   `justify-content: space-between` on the grid — not flex-grow on each
+   card — is what actually does the distributing. First attempt grew each
+   *card's own box* (`flex: 1 0 auto`) to fill an equal third of the
+   leftover height, which technically worked but looked broken: a card's
+   background/border stretched around its now-mostly-empty lower half,
+   leaving a visible dead zone below the chip row instead of the extra
+   room going anywhere sensible ("its still not working" — the actual bug
+   report was this, not a width problem, once a screenshot showed it).
+   `space-between` instead leaves each card at its natural compact height
+   and puts the leftover space *between* them as gaps — same "use the
+   whole screen" outcome, without inflating any one card's own box. */
+@media (max-width: 480px) {
+  /* 100vh, not 100dvh alone, is the actual bug real phones were hitting
+     and desktop-narrowed-window testing never could: mobile Chrome/Safari
+     size 100vh against the *largest* possible viewport (as if the address
+     bar were permanently hidden), not what's currently visible — the bar
+     shows/hides dynamically as you scroll, which a desktop window resize
+     has no equivalent of, so it never reproduced there. That mismatch
+     under-filled or misjudged the real visible height on an actual phone,
+     which is what kept looking like the same broken layout even after the
+     space-between fix above landed. 100dvh ("dynamic viewport height")
+     tracks the *actual* visible viewport as the address bar moves, and is
+     supported by every current mobile browser. Declared second so it wins
+     over the 100vh fallback in browsers new enough to know what it is,
+     while older browsers that don't recognize 100dvh silently keep the
+     100vh line instead of getting no height at all. */
+  body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  main { flex: 0 0 auto; }
+  #tally-page { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #tally-page > #poi-panel { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #poi-grid { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; justify-content: space-between; }
 }
 
 /* Simple icon+name+input row — only the Mission Log's edit form uses this
@@ -854,6 +1153,19 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   border-top: 1px solid var(--border-color);
 }
 
+/* Global Missions' read-only counterpart to .log-edit-form — same shape
+   (per-POI count + per-item breakdown), just plain text instead of number
+   inputs, since another diver's mission can be viewed but never edited. */
+.log-view-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.log-view-value { font-weight: 600; color: var(--text-light); min-width: 30px; text-align: right; }
+
+.log-tab-content { margin-top: 4px; }
+
 .log-edit-poi { margin-bottom: 14px; }
 
 .log-edit-items { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-left: 8px; }
@@ -973,6 +1285,14 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .toggle-row input:focus-visible ~ .toggle-switch { outline: 2px solid var(--se-yellow); outline-offset: 2px; }
 
 .toggle-label { font-size: 16px; color: var(--text-light); }
+
+/* Compact variant for the header — sits alongside the Diver ID / sync
+   status badges, which are all smaller than a typical settings-page row. */
+.toggle-row-header { gap: 8px; }
+.toggle-row-header .toggle-switch { width: 38px; height: 22px; min-width: 38px; }
+.toggle-row-header .toggle-switch::before { width: 16px; height: 16px; }
+.toggle-row-header input:checked ~ .toggle-switch::before { transform: translateX(18px); }
+.toggle-row-header .toggle-label { font-size: 14px; }
 
 .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 

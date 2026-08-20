@@ -73,12 +73,21 @@ export function computeStats(missions, config) {
 // filters: { squadMode, difficulty, planet, faction } — each 'all' (or
 // omitted) means no filter on that dimension. Missing mission fields are
 // treated as the 'unknown' bucket so old data can still be filtered/found.
+// Total POIs found on a mission — every POI type's count summed together,
+// regardless of type. Shared by the minPois filter below and the Global
+// Missions list (main.js), so "how many POIs" always means the same thing
+// in both places.
+export function totalPois(mission) {
+  return Object.values(mission.poiCounts || {}).reduce((sum, n) => sum + (n || 0), 0);
+}
+
 export function filterMissions(missions, filters = {}) {
   return missions.filter((m) => {
     if (filters.squadMode && filters.squadMode !== 'all' && (m.squadMode || 'unknown') !== filters.squadMode) return false;
     if (filters.difficulty && filters.difficulty !== 'all' && (m.difficulty || 'unknown') !== filters.difficulty) return false;
     if (filters.planet && filters.planet !== 'all' && (m.planet || 'unknown') !== filters.planet) return false;
     if (filters.faction && filters.faction !== 'all' && (m.faction || 'unknown') !== filters.faction) return false;
+    if (filters.minPois && totalPois(m) < filters.minPois) return false;
     return true;
   });
 }

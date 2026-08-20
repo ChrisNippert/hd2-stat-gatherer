@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260823c" />
+<link rel="stylesheet" href="css/style.css?v=20260823r" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -25,6 +25,11 @@
       <span id="client-id-display">—</span>
     </button>
     <span class="sync-status" id="sync-status">OFFLINE</span>
+    <label class="toggle-row toggle-row-header" for="simplified-view-toggle" title="Tap-to-open tiles + a guided pickup flow (on), or classic always-visible inline rows with manual tallying (off) — same setting either way, just moved here so it stays put regardless of page or layout.">
+      <input type="checkbox" id="simplified-view-toggle" />
+      <span class="toggle-switch"></span>
+      <span class="toggle-label">Simplified</span>
+    </label>
     <button id="settings-btn" class="btn btn-icon" aria-label="Settings">⚙</button>
   </div>
 </header>
@@ -36,8 +41,12 @@
 </nav>
 
 <main id="tally-page">
-  <div class="quick-add-bar hidden" id="quick-add-bar"></div>
-  <section class="panel mission-panel">
+  <div class="mobile-toolbar" id="mobile-toolbar">
+    <button id="mission-config-btn" class="btn btn-icon" aria-label="Mission Setup" title="Squad, difficulty, faction, planet, and mission actions">☰</button>
+  </div>
+  <div id="mission-panel-overlay" class="settings-overlay hidden"></div>
+  <section class="panel mission-panel" id="mission-panel">
+    <button class="btn btn-icon close-btn mission-panel-close" id="close-mission-panel" aria-label="Close mission setup">✕</button>
     <div class="mission-meta-grid">
       <div class="squad-mode">
         <span class="timer-label">SQUAD</span>
@@ -68,14 +77,8 @@
   </section>
 
   <section class="panel" id="poi-panel">
-    <div class="poi-panel-header">
-      <h2 class="panel-title">POINTS OF INTEREST</h2>
-      <label class="toggle-row" for="simplified-view-toggle">
-        <input type="checkbox" id="simplified-view-toggle" />
-        <span class="toggle-switch"></span>
-        <span class="toggle-label">Simplified View</span>
-      </label>
-    </div>
+    <h2 class="panel-title">POINTS OF INTEREST</h2>
+    <div class="quick-add-bar hidden" id="quick-add-bar"></div>
     <p class="hint">Tap +1 FOUND to log a container, then pick what dropped from each slot until it's full. For Medals, Requisition, and Super Credits, pick the exact amount — that also tallies it for Drop Sizes, no need to enter it twice.</p>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
@@ -109,8 +112,40 @@
 <main id="log-page" class="hidden">
   <section class="panel">
     <h2 class="panel-title">MISSION LOG</h2>
-    <p class="hint">Edit or delete previously saved missions.</p>
-    <div id="log-list" class="log-list"></div>
+    <div class="tabs">
+      <button class="tab-btn log-tab-btn active" data-logtab="mine">MY MISSIONS</button>
+      <button class="tab-btn log-tab-btn" data-logtab="global">GLOBAL MISSIONS</button>
+    </div>
+
+    <div id="log-mine" class="log-tab-content">
+      <p class="hint">Edit or delete previously saved missions.</p>
+      <div id="log-list" class="log-list"></div>
+    </div>
+
+    <div id="log-global" class="log-tab-content hidden">
+      <p class="hint">Every mission synced to this server, from every diver — read-only. Filter to find missions matching a particular run, then open one to see exactly what it dropped.</p>
+      <div class="stats-filter-row">
+        <span class="hint" style="margin:0;">Filter</span>
+        <select id="global-log-squad-filter" class="squad-select" title="Squad access differs by mode — 2-man bunkers can't be looted solo without a Warp Pack">
+          <option value="all">All Squad Modes</option>
+          <option value="solo">Solo (No Warp Pack)</option>
+          <option value="solo_warp">Solo + Warp Pack</option>
+          <option value="multiplayer">Multiplayer (2+)</option>
+          <option value="unknown">Unlabeled</option>
+        </select>
+        <select id="global-log-difficulty-filter" class="squad-select"></select>
+        <select id="global-log-faction-filter" class="squad-select"></select>
+        <select id="global-log-planet-filter" class="squad-select"></select>
+        <select id="global-log-poi-filter" class="squad-select" title="Total POIs found on the mission, across all POI types combined">
+          <option value="0">Any POIs Found</option>
+          <option value="1">1+ POIs Found</option>
+          <option value="3">3+ POIs Found</option>
+          <option value="5">5+ POIs Found</option>
+          <option value="10">10+ POIs Found</option>
+        </select>
+      </div>
+      <div id="global-log-list" class="log-list"></div>
+    </div>
   </section>
 </main>
 
@@ -193,6 +228,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260823c"></script>
+<script type="module" src="js/main.js?v=20260823r"></script>
 </body>
 </html>
