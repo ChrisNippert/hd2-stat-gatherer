@@ -3,7 +3,6 @@ const CURRENT_MISSION_KEY = 'sg_current_mission';
 const HISTORY_KEY = 'sg_mission_history';
 const SERVER_URL_KEY = 'sg_server_url';
 const SQUAD_MODE_KEY = 'sg_last_squad_mode';
-const DENOM_TALLY_KEY = 'sg_denom_tally';
 const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
 const LAST_PLANET_KEY = 'sg_last_planet';
 const LAST_FACTION_KEY = 'sg_last_faction';
@@ -78,21 +77,31 @@ export function setLastFaction(id) {
 
 // Lifetime (not per-mission) tally of observed drop amounts per item type:
 // { [itemId]: { [denomination]: observationCount } }
-export function getDenomTally() {
-  const raw = localStorage.getItem(DENOM_TALLY_KEY);
-  return raw ? JSON.parse(raw) : {};
+function blankDenomCounts(config) {
+  const denomCounts = {};
+  config.poiTypes.forEach((p) => {
+    denomCounts[p.id] = {};
+    config.itemTypes.forEach((i) => {
+      if (!Array.isArray(i.denominations) || i.denominations.length === 0) return;
+      denomCounts[p.id][i.id] = {};
+      i.denominations.forEach((d) => {
+        denomCounts[p.id][i.id][d] = 0;
+      });
+    });
+  });
+  return denomCounts;
 }
 
-export function saveDenomTally(tally) {
-  localStorage.setItem(DENOM_TALLY_KEY, JSON.stringify(tally));
-}
-
-export function incrementDenomCount(itemId, denom, delta) {
-  const tally = getDenomTally();
-  if (!tally[itemId]) tally[itemId] = {};
-  tally[itemId][denom] = Math.max(0, (tally[itemId][denom] || 0) + delta);
-  saveDenomTally(tally);
-  return tally;
+function blankDenomPickHistory(config) {
+  const denomPickHistory = {};
+  config.poiTypes.forEach((p) => {
+    denomPickHistory[p.id] = {};
+    config.itemTypes.forEach((i) => {
+      if (!Array.isArray(i.denominations) || i.denominations.length === 0) return;
+      denomPickHistory[p.id][i.id] = [];
+    });
+  });
+  return denomPickHistory;
 }
 
 export const SQUAD_MODES = ['solo', 'solo_warp', 'multiplayer'];
@@ -136,6 +145,7 @@ export function setServerUrl(url) {
 function blankMission(config) {
   const poiCounts = {};
   const itemDrops = {};
+  const denomCounts = blankDenomCounts(config);
   config.poiTypes.forEach((p) => {
     poiCounts[p.id] = 0;
     itemDrops[p.id] = {};
@@ -154,6 +164,8 @@ function blankMission(config) {
     faction: getLastFaction(),
     poiCounts,
     itemDrops,
+    denomCounts,
+    denomPickHistory: blankDenomPickHistory(config),
   };
 }
 
@@ -166,11 +178,22 @@ function reconcileWithConfig(mission, config) {
   if (mission.difficulty === undefined) mission.difficulty = '';
   if (mission.planet === undefined) mission.planet = '';
   if (mission.faction === undefined) mission.faction = '';
+  if (!mission.denomCounts || typeof mission.denomCounts !== 'object') mission.denomCounts = {};
+  if (!mission.denomPickHistory || typeof mission.denomPickHistory !== 'object') mission.denomPickHistory = {};
   config.poiTypes.forEach((p) => {
     if (!(p.id in mission.poiCounts)) mission.poiCounts[p.id] = 0;
     if (!mission.itemDrops[p.id]) mission.itemDrops[p.id] = {};
+    if (!mission.denomCounts[p.id] || typeof mission.denomCounts[p.id] !== 'object') mission.denomCounts[p.id] = {};
+    if (!mission.denomPickHistory[p.id]) mission.denomPickHistory[p.id] = {};
     config.itemTypes.forEach((i) => {
       if (!(i.id in mission.itemDrops[p.id])) mission.itemDrops[p.id][i.id] = 0;
+      if (Array.isArray(i.denominations) && i.denominations.length > 0) {
+        if (!mission.denomCounts[p.id][i.id] || typeof mission.denomCounts[p.id][i.id] !== 'object') mission.denomCounts[p.id][i.id] = {};
+        i.denominations.forEach((d) => {
+          if (!(d in mission.denomCounts[p.id][i.id])) mission.denomCounts[p.id][i.id][d] = 0;
+        });
+        if (!Array.isArray(mission.denomPickHistory[p.id][i.id])) mission.denomPickHistory[p.id][i.id] = [];
+      }
     });
   });
   return mission;
@@ -203,7 +226,8 @@ export function completeMission(config) {
   const mission = getCurrentMission(config);
   mission.endedAt = Date.now();
   const history = getHistory();
-  const completed = { ...mission, synced: false };
+  const { denomPickHistory, ...persistedMission } = mission;
+  const completed = { ...persistedMission, synced: false };
   history.push(completed);
   saveHistory(history);
   const fresh = blankMission(config);
@@ -257,6 +281,5 @@ export function deleteMission(missionId) {
 export function resetAllData() {
   localStorage.removeItem(CURRENT_MISSION_KEY);
   localStorage.removeItem(HISTORY_KEY);
-  localStorage.removeItem(DENOM_TALLY_KEY);
   localStorage.removeItem(QUICK_GUIDE_SEEN_KEY);
 }

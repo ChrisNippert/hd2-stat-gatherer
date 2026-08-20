@@ -68,7 +68,7 @@ index.html          entry point (TALLY / STATS / MISSIONS pages — Drop Sizes i
 css/style.css        Helldivers-styled UI (dark/yellow, angular panels, charts)
 js/
   main.js            DOM rendering + event wiring
-  state.js            localStorage-backed mission/history/denom-tally state
+  state.js            localStorage-backed mission/history state
   stats.js            pure stat-computation functions (incl. value resolution)
   config.js            fixed POI/item/difficulty/faction/planet definitions
   api.js               fetch wrappers for the sync server
@@ -80,5 +80,5 @@ server/
 
 ## Data model notes
 
-- Everything is stored client-side in `localStorage`; the server holds two tables — `missions` and `denominations` — both keyed so a diver can only write their own rows. It doesn't hold any canonical taxonomy; global aggregation works because every client ships with the same fixed POI/item/difficulty/faction/planet IDs.
+- Everything is stored client-side in `localStorage`; the server's canonical dataset is the `missions` table, with each mission also carrying its own denomination breakdown for Drop Sizes / Resource Value. It doesn't hold any canonical taxonomy; global aggregation works because every client ships with the same fixed POI/item/difficulty/faction/planet IDs.
 - A mission's `squadMode`/`difficulty`/`faction`/`planet` are blank (not guessed) on missions recorded before that field existed, distinguishable from an explicit answer. If old data ever needs bulk cleanup again, do it deliberately against the JSON data rather than with a permanent in-app backfill/re-tag surface.

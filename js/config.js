@@ -20,8 +20,8 @@ const DEFAULT_ITEM_VALUES = {
 
 // Starter denomination buckets for the Drop Size tracker — the discrete
 // amounts a single pickup can actually give, for items where that varies.
-// These are still user-addable from the Drop Sizes page (unlike the rest of
-// the taxonomy) since discovering new ones is the point of that feature.
+// Fixed like the rest of the taxonomy so mission-stored denomination data
+// stays globally comparable across divers.
 const DEFAULT_DENOMINATIONS = {
   medals: [1, 2, 3],
   requisition: [100, 1000],

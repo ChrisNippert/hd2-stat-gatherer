@@ -117,6 +117,22 @@ export function computeDenomStats(tally, itemId) {
   };
 }
 
+export function buildDenomTallyFromMissions(missions) {
+  const tally = {};
+  missions.forEach((mission) => {
+    const missionCounts = mission?.denomCounts || {};
+    Object.values(missionCounts).forEach((poiCounts) => {
+      Object.entries(poiCounts || {}).forEach(([itemId, denomCounts]) => {
+        if (!tally[itemId]) tally[itemId] = {};
+        Object.entries(denomCounts || {}).forEach(([denom, count]) => {
+          tally[itemId][denom] = (tally[itemId][denom] || 0) + (Number(count) || 0);
+        });
+      });
+    });
+  });
+  return tally;
+}
+
 // Resource Value's "value per pickup" is no longer a manually-set number —
 // it's calibrated from real Drop Size Tracker observations, preferring the
 // larger/more-robust global (crowd-pooled) sample over the local one, and

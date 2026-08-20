@@ -32,23 +32,3 @@ export async function deleteMissionRemote(baseUrl, missionId, clientId) {
   if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
   return res.json();
 }
-
-export async function submitDenomCount(baseUrl, clientId, itemId, denom, count) {
-  const res = await fetch(`${baseUrl}/api/denominations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, itemId, denom, count }),
-  });
-  if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchDenominations(baseUrl, clientId) {
-  const url = clientId
-    ? `${baseUrl}/api/denominations?clientId=${encodeURIComponent(clientId)}`
-    : `${baseUrl}/api/denominations`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  const data = await res.json();
-  return data.denominations;
-}

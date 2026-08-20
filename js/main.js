@@ -1,26 +1,18 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824r';
-import * as state from './state.js?v=20260824r';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824r';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824r';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824s';
+import * as state from './state.js?v=20260824s';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260824s';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260824s';
 
 let config = loadConfig();
 let clientId = state.getClientId();
 let serverUrl = state.getServerUrl();
 let currentMission = state.getCurrentMission(config);
 let globalMissions = null; // lazily fetched
-let globalDenomTally = null; // lazily fetched, pooled across all divers: { itemId: { denom: count } }
 let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all' };
 // minPois: 0 means "any" (unfiltered) — matches how squadMode/difficulty/etc
 // use 'all' as their unfiltered sentinel, just numeric since POI count isn't
 // a fixed taxonomy id.
 let globalLogFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all', minPois: 0 };
-// In-memory only (not persisted): a LIFO stack of denominations picked per
-// poi+item on the Tally page, so repeated "−" presses undo picks in the exact
-// reverse order they were made (pick +3 then +2, and "−" "−" correctly rolls
-// back the 2 first, then the 3) instead of only remembering the single most
-// recent pick. Resets on reload, which is fine — that's a fresh-session edge
-// case, not the common misclick.
-let denomPickStacks = {};
 // In-memory only (not persisted): which POI cards have their item-tile grid
 // manually expanded, on a short viewport where it's collapsed by default —
 // see the .is-expanded / max-height:740px handling in style.css. Only
@@ -488,7 +480,7 @@ function itemRowControlsHtml(poiId, itemId) {
   const i = config.itemTypes.find((x) => x.id === itemId);
   const hasDenoms = i.denominations && i.denominations.length > 0;
   const count = currentMission.itemDrops[poiId]?.[itemId] || 0;
-  const stack = hasDenoms ? (denomPickStacks[`${poiId}:${itemId}`] || []) : null;
+  const stack = hasDenoms ? denomStackForCurrentMission(poiId, itemId) : null;
   const lastPick = stack && stack.length ? stack[stack.length - 1] : null;
   return `
     <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
@@ -579,6 +571,13 @@ function persistCurrentMission() {
   state.saveCurrentMission(currentMission);
 }
 
+function denomStackForCurrentMission(poiId, itemId) {
+  if (!currentMission.denomPickHistory) currentMission.denomPickHistory = {};
+  if (!currentMission.denomPickHistory[poiId]) currentMission.denomPickHistory[poiId] = {};
+  if (!Array.isArray(currentMission.denomPickHistory[poiId][itemId])) currentMission.denomPickHistory[poiId][itemId] = [];
+  return currentMission.denomPickHistory[poiId][itemId];
+}
+
 // Shared by both the desktop inline rows (poi-grid's own click handler,
 // below) and the mobile item popup (next section) — same mutation, same
 // undo-stack bookkeeping, just triggered from two different bits of DOM.
@@ -591,13 +590,11 @@ function tallyItemInc(poiId, itemId) {
 }
 
 function tallyItemDec(poiId, itemId) {
-  const key = `${poiId}:${itemId}`;
   if ((currentMission.itemDrops[poiId][itemId] || 0) > 0) {
-    const stack = denomPickStacks[key];
+    const stack = denomStackForCurrentMission(poiId, itemId);
     if (stack && stack.length > 0) {
       const undoneDenom = stack.pop();
-      state.incrementDenomCount(itemId, undoneDenom, -1);
-      if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, undoneDenom, state.getDenomTally()[itemId][undoneDenom]).catch(() => {});
+      currentMission.denomCounts[poiId][itemId][undoneDenom] = Math.max(0, (currentMission.denomCounts[poiId][itemId][undoneDenom] || 0) - 1);
     }
     currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) - 1);
   }
@@ -608,11 +605,11 @@ function tallyItemDec(poiId, itemId) {
 }
 
 function tallyItemIncDenom(poiId, itemId, denom) {
-  const key = `${poiId}:${itemId}`;
   currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
-  state.incrementDenomCount(itemId, denom, 1);
-  (denomPickStacks[key] || (denomPickStacks[key] = [])).push(denom);
-  if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, denom, state.getDenomTally()[itemId][denom]).catch(() => {});
+  if (!currentMission.denomCounts[poiId]) currentMission.denomCounts[poiId] = {};
+  if (!currentMission.denomCounts[poiId][itemId]) currentMission.denomCounts[poiId][itemId] = {};
+  currentMission.denomCounts[poiId][itemId][denom] = (currentMission.denomCounts[poiId][itemId][denom] || 0) + 1;
+  denomStackForCurrentMission(poiId, itemId).push(denom);
   persistCurrentMission();
   renderPoiGrid();
   renderItemPopupIfOpen();
@@ -1055,52 +1052,12 @@ async function syncPendingMissions() {
       /* leave for next attempt */
     }
   }
-  await syncDenomTally();
-  await refreshGlobalDenoms();
   // Global Stats' mission list (globalMissions) previously only refreshed
   // when the GLOBAL STATS tab button was clicked — a delete/edit by another
   // diver (or even your own, if the tab was already active before you left
   // the page) would sit stale indefinitely. Refreshing it on every sync pass
-  // (same 30s interval already used for global denom data) means it self-
-  // heals instead of requiring a manual tab re-click.
+  // means it self-heals instead of requiring a manual tab re-click.
   await refreshGlobalStats();
-}
-
-// Denomination counts are small in volume (a handful of item x amount
-// buckets, not one row per mission) so it's simplest to just re-push every
-// current local count on each sync pass rather than track per-bucket dirty
-// flags — the server upsert is idempotent either way.
-async function syncDenomTally() {
-  if (!serverUrl) return;
-  const tally = state.getDenomTally();
-  for (const itemId of Object.keys(tally)) {
-    for (const denom of Object.keys(tally[itemId])) {
-      try {
-        await submitDenomCount(serverUrl, clientId, itemId, denom, tally[itemId][denom]);
-      } catch {
-        /* leave for next sync pass */
-      }
-    }
-  }
-}
-
-async function refreshGlobalDenoms() {
-  if (!serverUrl) {
-    globalDenomTally = null;
-    return;
-  }
-  try {
-    const rows = await fetchDenominations(serverUrl);
-    const pooled = {};
-    rows.forEach((r) => {
-      if (!pooled[r.itemId]) pooled[r.itemId] = {};
-      pooled[r.itemId][r.denom] = (pooled[r.itemId][r.denom] || 0) + r.count;
-    });
-    globalDenomTally = pooled;
-    renderStats();
-  } catch {
-    /* keep whatever global data we already had */
-  }
 }
 
 /* ---------------- Charts ---------------- */
@@ -1303,16 +1260,19 @@ function dropSizeStatsHtml(tally) {
 }
 
 function renderStats() {
-  const resolvedItemTypes = resolveItemValues(config.itemTypes, state.getDenomTally(), globalDenomTally || {});
+  const localMissionsForDenoms = [...state.getHistory(), currentMission];
+  const localDenomTally = buildDenomTallyFromMissions(localMissionsForDenoms);
+  const globalDenomTally = buildDenomTallyFromMissions(globalMissions || []);
+  const resolvedItemTypes = resolveItemValues(config.itemTypes, localDenomTally, globalDenomTally);
   const resolvedConfig = { ...config, itemTypes: resolvedItemTypes };
   const history = filterMissions(state.getHistory(), statsFilters);
-  el('stats-mine').innerHTML = statsHtml(computeStats(history, resolvedConfig)) + dropSizeStatsHtml(state.getDenomTally());
+  el('stats-mine').innerHTML = statsHtml(computeStats(history, resolvedConfig)) + dropSizeStatsHtml(localDenomTally);
   const globalStatsHtml = globalMissions
     ? statsHtml(computeStats(filterMissions(globalMissions, statsFilters), resolvedConfig))
     : (serverUrl
       ? '<p class="empty-note">Loading global stats…</p>'
-      : '<p class="empty-note">Set a server URL in Settings to see global stats from all divers.</p>');
-  el('stats-global').innerHTML = globalStatsHtml + dropSizeStatsHtml(globalDenomTally || {});
+      : '<p class="empty-note">Server sync is off, so Global Stats is unavailable.</p>');
+  el('stats-global').innerHTML = globalStatsHtml + dropSizeStatsHtml(globalDenomTally);
 }
 
 on('stats-squad-filter', 'change', (e) => {
@@ -1384,6 +1344,18 @@ function missionLabel(mission, listKey, field) {
 
 const SQUAD_MODE_LABELS = { solo: 'Solo', solo_warp: 'Solo+Warp', multiplayer: 'Multiplayer', unknown: 'Unlabeled' };
 
+function denomCountForMission(mission, poiId, itemId, denom) {
+  return (mission.denomCounts && mission.denomCounts[poiId] && mission.denomCounts[poiId][itemId] && mission.denomCounts[poiId][itemId][denom]) || 0;
+}
+
+function missionDenomSummary(mission, poiId, item) {
+  const denoms = (item.denominations || [])
+    .map((denom) => ({ denom, count: denomCountForMission(mission, poiId, item.id, denom) }))
+    .filter((entry) => entry.count > 0);
+  if (!denoms.length) return '';
+  return denoms.map((entry) => `${entry.count}x ${entry.denom}`).join(', ');
+}
+
 function missionEditFormHtml(mission) {
   const squadOptions = Object.entries(SQUAD_MODE_LABELS)
     .filter(([val]) => val !== 'unknown')
@@ -1414,7 +1386,16 @@ function missionEditFormHtml(mission) {
               <div class="item-row">
                 ${iconBlock(i.icon)}
                 <span class="item-name">${esc(i.name)}</span>
-                <input type="number" class="value-input log-edit-item-count" data-poi="${p.id}" data-item="${i.id}" min="0" value="${mission.itemDrops?.[p.id]?.[i.id] || 0}" />
+                ${i.denominations && i.denominations.length > 0 ? `
+                  <div class="log-edit-denoms">
+                    ${i.denominations.map((d) => `
+                      <label class="log-edit-denom">
+                        <span>${d}</span>
+                        <input type="number" class="value-input log-edit-denom-count" data-poi="${p.id}" data-item="${i.id}" data-denom="${d}" min="0" value="${denomCountForMission(mission, p.id, i.id, d)}" />
+                      </label>
+                    `).join('')}
+                  </div>
+                ` : `<input type="number" class="value-input log-edit-item-count" data-poi="${p.id}" data-item="${i.id}" min="0" value="${mission.itemDrops?.[p.id]?.[i.id] || 0}" />`}
               </div>
             `).join('')}
           </div>
@@ -1521,8 +1502,20 @@ on('log-list', 'click', async (e) => {
     form.querySelectorAll('.log-edit-item-count').forEach((input) => {
       itemDrops[input.dataset.poi][input.dataset.item] = Math.max(0, parseInt(input.value, 10) || 0);
     });
+    const denomCounts = {};
+    form.querySelectorAll('.log-edit-denom-count').forEach((input) => {
+      const poiId = input.dataset.poi;
+      const itemId = input.dataset.item;
+      const denom = input.dataset.denom;
+      const count = Math.max(0, parseInt(input.value, 10) || 0);
+      if (!denomCounts[poiId]) denomCounts[poiId] = {};
+      if (!denomCounts[poiId][itemId]) denomCounts[poiId][itemId] = {};
+      denomCounts[poiId][itemId][denom] = count;
+      itemDrops[poiId][itemId] += count;
+    });
     patch.poiCounts = poiCounts;
     patch.itemDrops = itemDrops;
+    patch.denomCounts = denomCounts;
     state.updateMission(missionId, patch);
     renderLogPage();
     renderStats();
@@ -1563,6 +1556,7 @@ function globalMissionDetailHtml(m) {
                 ${iconBlock(i.icon)}
                 <span class="item-name">${esc(i.name)}</span>
                 <span class="log-view-value">${m.itemDrops?.[p.id]?.[i.id] || 0}</span>
+                ${missionDenomSummary(m, p.id, i) ? `<span class="log-view-subvalue">${esc(missionDenomSummary(m, p.id, i))}</span>` : ''}
               </div>
             `).join('')}
           </div>
@@ -1612,7 +1606,7 @@ function renderGlobalLogPage() {
   const container = el('global-log-list');
   if (!container) return;
   if (!serverUrl) {
-    container.innerHTML = '<p class="empty-note">Set a server in Settings to see missions from every diver.</p>';
+    container.innerHTML = '<p class="empty-note">Server sync is off, so Global Missions is unavailable.</p>';
     return;
   }
   if (!globalMissions) {
@@ -1738,7 +1732,6 @@ on('export-json', 'click', () => {
     config,
     currentMission,
     history: state.getHistory(),
-    denomTally: state.getDenomTally(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1768,9 +1761,6 @@ on('import-json-input', 'change', async (e) => {
       currentMission = data.currentMission;
       state.saveCurrentMission(currentMission);
     }
-    if (data.denomTally) {
-      state.saveDenomTally(data.denomTally);
-    }
     currentMission = state.getCurrentMission(config);
     closeItemPopup();
     renderQuickAddBar();
@@ -1790,7 +1780,7 @@ on('import-json-input', 'change', async (e) => {
 });
 
 on('reset-data', 'click', () => {
-  if (!confirm('This will erase all local missions, drop-size tallies, and the in-progress mission. Continue?')) return;
+  if (!confirm('This will erase all local missions and the in-progress mission. Continue?')) return;
   state.resetAllData();
   currentMission = state.getCurrentMission(config);
   closeItemPopup();
