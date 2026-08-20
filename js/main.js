@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824a';
-import * as state from './state.js?v=20260824a';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824a';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824a';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824m';
+import * as state from './state.js?v=20260824m';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824m';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824m';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -28,6 +28,8 @@ let denomPickStacks = {};
 // the only way to tally there (guided flow never fires with Simplified off),
 // so they're never collapsed regardless of this set's contents.
 let expandedPoiCards = new Set();
+let quickGuide = null;
+let quickGuideTrackTimer = null;
 
 const el = (id) => document.getElementById(id);
 
@@ -99,6 +101,13 @@ function iconInline(icon) {
     : esc(icon || FALLBACK_ICON);
 }
 
+function isVisible(elm) {
+  if (!elm) return false;
+  if (elm.classList?.contains('hidden')) return false;
+  const style = getComputedStyle(elm);
+  return style.display !== 'none' && style.visibility !== 'hidden' && elm.getClientRects().length > 0;
+}
+
 function toast(message, type = '') {
   const t = el('toast');
   // Two separate timers (auto-dismiss, then the delayed re-hide after the
@@ -116,6 +125,213 @@ function toast(message, type = '') {
   }, 3000);
 }
 
+/* ---------------- Quick guide ---------------- */
+
+function currentGuideMissionControlTarget() {
+  return isVisible(el('poi-new-mission-btn')) ? el('poi-new-mission-btn') : el('new-mission-btn');
+}
+
+function currentGuideAddTarget() {
+  const quickAdd = el('quick-add-bar')?.querySelector('button[data-action="quick-add-open"]');
+  if (isVisible(quickAdd)) return quickAdd;
+  return document.querySelector('#poi-grid button[data-action="poi-inc"]');
+}
+
+function buildQuickGuideSteps() {
+  return [
+    {
+      target: () => el('client-badge'),
+      title: 'Diver Identity',
+      body: 'This Diver ID is the profile your missions and synced stats belong to. Open Settings here if you ever want to move to another diver or server.',
+      highlightPad: { top: 4, right: 4, bottom: 4, left: 0 },
+    },
+    {
+      target: () => window.innerWidth < 1300 ? el('mission-config-btn') : document.querySelector('#mission-panel .mission-meta-grid'),
+      title: 'Mission Setup',
+      body: window.innerWidth < 1300
+        ? 'Use this drawer for squad mode, difficulty, faction, and planet before or during a run.'
+        : 'Your squad mode, difficulty, faction, and planet live here for the current run.',
+    },
+    {
+      target: currentGuideMissionControlTarget,
+      title: 'Mission Actions',
+      body: 'Save & Reset finishes the current mission and starts a fresh one. Clear throws away a bad in-progress tally without saving it.',
+    },
+    {
+      target: currentGuideAddTarget,
+      title: simplifiedView ? 'Log a Minor Place Fast' : 'Mark a Minor Place Found',
+      body: simplifiedView
+        ? 'Use Add Minor Place for the fastest phone flow, or tap +1 FOUND on a specific card if you already know which one you found.'
+        : 'Tap +1 FOUND on the matching Minor Place card each time you find one, then tally what dropped on that card.',
+    },
+    {
+      target: () => document.querySelector('#poi-grid .poi-card'),
+      title: 'Tally the Drops',
+      body: 'Each Minor Place has a slot count. Log what dropped from each slot so the stats stay tied to the right container type.',
+    },
+    {
+      target: () => el('simplified-view-toggle')?.closest('.toggle-row'),
+      title: 'Simplified View',
+      body: 'Simplified ON gives you the guided phone-friendly flow. OFF shows every item row inline for faster manual tallying.',
+    },
+    {
+      target: () => document.querySelector('button[data-page="stats"]'),
+      title: 'Stats and Mission Log',
+      body: 'Stats rolls up your saved missions into drop-rate numbers. Missions lets you edit or delete old runs later.',
+    },
+  ].filter((step) => isVisible(step.target()));
+}
+
+function clearQuickGuideTarget() {
+  document.querySelector('.guide-focus-target')?.classList.remove('guide-focus-target');
+}
+
+function finishQuickGuide(markSeen = true) {
+  clearInterval(quickGuideTrackTimer);
+  quickGuideTrackTimer = null;
+  clearQuickGuideTarget();
+  quickGuide = null;
+  el('guide-overlay')?.style.removeProperty('clip-path');
+  el('guide-overlay')?.style.removeProperty('-webkit-clip-path');
+  el('guide-highlight')?.classList.add('hidden');
+  hideAnimated(el('guide-callout'));
+  hideAnimated(el('guide-overlay'));
+  if (markSeen) state.setQuickGuideSeen(true);
+}
+
+function trackQuickGuidePosition(durationMs = 1400) {
+  clearInterval(quickGuideTrackTimer);
+  if (!quickGuide) return;
+  const started = Date.now();
+  const tick = () => {
+    if (!quickGuide) {
+      clearInterval(quickGuideTrackTimer);
+      quickGuideTrackTimer = null;
+      return;
+    }
+    positionQuickGuide();
+    if (Date.now() - started >= durationMs) {
+      clearInterval(quickGuideTrackTimer);
+      quickGuideTrackTimer = null;
+    }
+  };
+  tick();
+  quickGuideTrackTimer = setInterval(tick, 80);
+}
+
+function positionQuickGuide() {
+  if (!quickGuide) return;
+  const target = quickGuide.target;
+  if (!isVisible(target)) return;
+  const callout = el('guide-callout');
+  const overlay = el('guide-overlay');
+  const highlight = el('guide-highlight');
+  const margin = 12;
+  const rect = target.getBoundingClientRect();
+  const pad = quickGuide.steps[quickGuide.index]?.highlightPad ?? 8;
+  const highlightPad = typeof pad === 'number'
+    ? { top: pad, right: pad, bottom: pad, left: pad }
+    : { top: 8, right: 8, bottom: 8, left: 8, ...pad };
+  const cutoutLeft = Math.max(6, Math.round(rect.left - highlightPad.left));
+  const cutoutTop = Math.max(6, Math.round(rect.top - highlightPad.top));
+  const cutoutRight = Math.min(window.innerWidth - 6, Math.round(rect.right + highlightPad.right));
+  const cutoutBottom = Math.min(window.innerHeight - 6, Math.round(rect.bottom + highlightPad.bottom));
+  highlight.classList.remove('hidden');
+  highlight.style.left = `${cutoutLeft}px`;
+  highlight.style.top = `${cutoutTop}px`;
+  highlight.style.width = `${Math.max(0, cutoutRight - cutoutLeft)}px`;
+  highlight.style.height = `${Math.max(0, cutoutBottom - cutoutTop)}px`;
+  const cutoutClip = `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${cutoutLeft}px ${cutoutTop}px, ${cutoutLeft}px ${cutoutBottom}px, ${cutoutRight}px ${cutoutBottom}px, ${cutoutRight}px ${cutoutTop}px, ${cutoutLeft}px ${cutoutTop}px)`;
+  overlay.style.clipPath = cutoutClip;
+  overlay.style.webkitClipPath = cutoutClip;
+  const box = callout.getBoundingClientRect();
+  const prefersBelow = rect.top < window.innerHeight * 0.45;
+  let top = prefersBelow ? rect.bottom + margin : rect.top - box.height - margin;
+  top = Math.max(margin, Math.min(top, window.innerHeight - box.height - margin));
+  let left = rect.left + ((rect.width - box.width) / 2);
+  left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
+  callout.style.top = `${Math.round(top)}px`;
+  callout.style.left = `${Math.round(left)}px`;
+}
+
+function renderQuickGuide() {
+  if (!quickGuide) return;
+  const step = quickGuide.steps[quickGuide.index];
+  const target = step?.target?.();
+  if (!isVisible(target)) {
+    finishQuickGuide(true);
+    return;
+  }
+  quickGuide.target = target;
+  clearQuickGuideTarget();
+  target.classList.add('guide-focus-target');
+  target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+  const callout = el('guide-callout');
+  callout.innerHTML = `
+    <div class="guide-kicker">FIELD ORIENTATION ${quickGuide.index + 1} / ${quickGuide.steps.length}</div>
+    <h3>${esc(step.title)}</h3>
+    <p>${esc(step.body)}</p>
+    <div class="guide-actions">
+      <button class="btn" type="button" data-action="guide-skip">Skip</button>
+      ${quickGuide.index > 0 ? '<button class="btn" type="button" data-action="guide-prev">Back</button>' : ''}
+      <button class="btn btn-primary" type="button" data-action="guide-next">${quickGuide.index === quickGuide.steps.length - 1 ? 'Done' : 'Next'}</button>
+    </div>
+  `;
+  showAnimated(el('guide-overlay'));
+  showAnimated(callout);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    positionQuickGuide();
+    trackQuickGuidePosition();
+  }));
+}
+
+function startQuickGuide(force = false) {
+  if (quickGuide) return;
+  if (!force && state.hasSeenQuickGuide()) return;
+  showPage('tally');
+  const steps = buildQuickGuideSteps();
+  if (!steps.length) return;
+  quickGuide = { index: 0, steps, target: null };
+  renderQuickGuide();
+}
+
+function refreshQuickGuideIfOpen() {
+  if (!quickGuide) return;
+  renderQuickGuide();
+}
+
+on('guide-callout', 'click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn || !quickGuide) return;
+  const action = btn.dataset.action;
+  if (action === 'guide-skip') {
+    finishQuickGuide(true);
+    return;
+  }
+  if (action === 'guide-prev') {
+    quickGuide.index = Math.max(0, quickGuide.index - 1);
+    renderQuickGuide();
+    return;
+  }
+  if (action === 'guide-next') {
+    if (quickGuide.index >= quickGuide.steps.length - 1) {
+      finishQuickGuide(true);
+    } else {
+      quickGuide.index += 1;
+      renderQuickGuide();
+    }
+  }
+});
+
+on('replay-guide-btn', 'click', () => {
+  closeSettings();
+  finishQuickGuide(false);
+  startQuickGuide(true);
+});
+
+window.addEventListener('resize', positionQuickGuide);
+window.addEventListener('scroll', positionQuickGuide, true);
+
 /* ---------------- Client ID / sync status ---------------- */
 
 function renderClientBadge() {
@@ -128,6 +344,7 @@ function setSyncStatus(text, cls = '') {
   const s = el('sync-status');
   s.textContent = text;
   s.className = `sync-status ${cls}`;
+  refreshQuickGuideIfOpen();
 }
 
 /* ---------------- Squad mode ---------------- */
@@ -240,14 +457,12 @@ on('planet-input', 'change', (e) => {
 // width. ON: items are tap-to-open tiles, and "+1 FOUND" walks through the
 // pick-item/pick-amount loop. OFF: items are classic always-visible inline
 // rows, and "+1 FOUND" just marks it found — no popup, tally manually.
-// Defaults to a width-based guess on a fresh install (no saved preference
-// yet) but — deliberately, per explicit request — does NOT keep following
-// window size after that; once it's a visible on-page toggle, resizing out
-// from under the user's choice would undermine the point of giving them
-// direct control.
-const MOBILE_BREAKPOINT_PX = 640;
+// Defaults ON on a fresh install (no saved preference yet), but — per
+// explicit request — does NOT keep following window size after that; once
+// it's a visible on-page toggle, resizing out from under the user's choice
+// would undermine the point of giving them direct control.
 let simplifiedView = state.getSimplifiedView();
-if (simplifiedView === null) simplifiedView = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+if (simplifiedView === null) simplifiedView = true;
 
 function renderSimplifiedViewToggle() {
   const t = el('simplified-view-toggle');
@@ -292,7 +507,7 @@ function renderPoiGrid() {
   // their own controls) — see .poi-grid-desktop in style.css.
   grid.classList.toggle('poi-grid-desktop', !simplifiedView);
   if (config.poiTypes.length === 0) {
-    grid.innerHTML = '<p class="empty-note">No POI types configured. Try Settings → Reset All Local Data to restore the defaults.</p>';
+    grid.innerHTML = '<p class="empty-note">No minor place types configured. Try Settings → Reset All Local Data to restore the defaults.</p>';
     return;
   }
   grid.innerHTML = config.poiTypes.map((p) => {
@@ -354,6 +569,7 @@ function renderPoiGrid() {
       </div>
     `;
   }).join('');
+  refreshQuickGuideIfOpen();
 }
 
 function persistCurrentMission() {
@@ -427,8 +643,12 @@ function renderQuickAddBar() {
   const bar = el('quick-add-bar');
   if (!bar) return;
   bar.classList.toggle('hidden', !simplifiedView);
-  if (!simplifiedView) return;
-  bar.innerHTML = `<button class="quick-add-btn" type="button" data-action="quick-add-open">+ ADD POINT OF INTEREST</button>`;
+  if (!simplifiedView) {
+    refreshQuickGuideIfOpen();
+    return;
+  }
+  bar.innerHTML = `<button class="quick-add-btn" type="button" data-action="quick-add-open">+ ADD MINOR PLACE OF INTEREST</button>`;
+  refreshQuickGuideIfOpen();
 }
 
 on('quick-add-bar', 'click', (e) => {
@@ -496,7 +716,7 @@ function itemPopupHtml() {
     return `
       <div class="item-popup-header">
         <div class="item-popup-heading">
-          <div class="item-popup-name">Add Point of Interest</div>
+          <div class="item-popup-name">Add Minor Place of Interest</div>
           <div class="item-popup-poi">What did you find?</div>
         </div>
         <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
@@ -689,9 +909,43 @@ on('item-popup', 'click', (e) => {
 
 /* ---------------- New Mission ---------------- */
 
-on('new-mission-btn', 'click', async () => {
+function submitPromptHtml() {
+  return `
+    <div class="item-popup-header">
+      <div class="item-popup-heading">
+        <div class="item-popup-name">All Minor Places Collected?</div>
+        <div class="item-popup-poi">This only affects Minor Place frequency stats.</div>
+      </div>
+      <button class="btn btn-icon close-btn" data-action="submit-cancel" aria-label="Close">✕</button>
+    </div>
+    <p>If you think this run cleared every Minor Place on the map, mark it here. If not, or if you're unsure, just tap the second option.</p>
+    <div class="submit-popup-actions">
+      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">Yes — I think we got them all</button>
+      <button class="btn" type="button" data-action="submit-finish" data-collected="no">No / Not Sure</button>
+    </div>
+    <div class="submit-popup-cancel">
+      <button class="btn-link" type="button" data-action="submit-cancel">Cancel</button>
+    </div>
+  `;
+}
+
+function openSubmitPopup() {
+  el('submit-popup').innerHTML = submitPromptHtml();
+  showAnimated(el('submit-popup-overlay'));
+  showAnimated(el('submit-popup'));
+}
+
+function closeSubmitPopup() {
+  hideAnimated(el('submit-popup'));
+  hideAnimated(el('submit-popup-overlay'));
+}
+
+async function finalizeMissionSubmission(allMinorPlacesCollected) {
+  currentMission.allMinorPlacesCollected = !!allMinorPlacesCollected;
+  persistCurrentMission();
   const { completed, fresh } = state.completeMission(config);
   currentMission = fresh;
+  closeSubmitPopup();
   closeItemPopup();
   closeMissionPanel();
   renderPoiGrid();
@@ -700,18 +954,37 @@ on('new-mission-btn', 'click', async () => {
   renderMissionMetaSelects();
   toast('Mission saved. New mission started.', 'success');
   await trySyncMission(completed);
+}
+
+on('new-mission-btn', 'click', openSubmitPopup);
+on('poi-new-mission-btn', 'click', openSubmitPopup);
+on('submit-popup-overlay', 'click', closeSubmitPopup);
+on('submit-popup', 'click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'submit-cancel') {
+    closeSubmitPopup();
+    return;
+  }
+  if (btn.dataset.action === 'submit-finish') {
+    await finalizeMissionSubmission(btn.dataset.collected === 'yes');
+  }
 });
 
-on('clear-mission-btn', 'click', () => {
+function clearCurrentMission() {
   if (!confirm('Discard the current in-progress mission without saving it? This cannot be undone.')) return;
   currentMission = state.discardCurrentMission(config);
+  closeSubmitPopup();
   closeItemPopup();
   closeMissionPanel();
   renderPoiGrid();
   renderSquadModeSelect();
   renderMissionMetaSelects();
   toast('Mission cleared — nothing was saved.', 'success');
-});
+}
+
+on('clear-mission-btn', 'click', clearCurrentMission);
+on('poi-clear-mission-btn', 'click', clearCurrentMission);
 
 async function trySyncMission(mission) {
   if (!serverUrl) return;
@@ -841,14 +1114,14 @@ function dropProbabilityHeatmapHtml(stats) {
 
 function statsHtml(stats) {
   if (stats.totalMissions === 0) {
-    return '<p class="empty-note">No completed missions yet. Tally some POIs and hit "New Mission" to save your first one.</p>';
+    return '<p class="empty-note">No completed missions yet. Tally some minor places and hit "New Mission" to save your first one.</p>';
   }
 
   const poiChartRows = config.poiTypes.map((p) => ({
     label: p.name,
     value: stats.poi[p.id].count,
     displayValue: String(stats.poi[p.id].count),
-    title: `${p.name}: ${stats.poi[p.id].count} (${(stats.poi[p.id].pctOfPois * 100).toFixed(1)}% of POIs)`,
+    title: `${p.name}: ${stats.poi[p.id].count} (${(stats.poi[p.id].pctOfPois * 100).toFixed(1)}% of minor places)`,
   }));
 
   const yieldChartRows = config.itemTypes.map((i) => ({
@@ -866,20 +1139,24 @@ function statsHtml(stats) {
     displayValue: stats.items[i.id].totalValue.toFixed(0),
     title: `${i.name}: ${stats.items[i.id].totalValue.toFixed(0)} total value`,
   }));
+  const poiScopeNote = stats.poiMissionCount === 0
+    ? '<p class="hint">Minor Place frequency uses only missions marked as having collected all Minor Places on the map. None of the currently-filtered missions are marked that way yet.</p>'
+    : `<p class="hint">Minor Place frequency is using ${stats.poiMissionCount} mission${stats.poiMissionCount === 1 ? '' : 's'} marked as having collected all Minor Places on the map.</p>`;
 
   return `
     <div class="stats-summary">
       <div class="stat-tile"><span class="stat-value">${stats.totalMissions}</span><span class="stat-label">MISSIONS</span></div>
-      <div class="stat-tile"><span class="stat-value">${stats.totalPois}</span><span class="stat-label">POIs FOUND</span></div>
-      <div class="stat-tile"><span class="stat-value">${stats.avgPoisPerMission.toFixed(1)}</span><span class="stat-label">AVG POIs / MISSION</span></div>
+      <div class="stat-tile"><span class="stat-value">${stats.totalPois}</span><span class="stat-label">MINOR PLACES FOUND</span></div>
+      <div class="stat-tile"><span class="stat-value">${stats.avgPoisPerMission.toFixed(1)}</span><span class="stat-label">AVG MPOIs / MISSION</span></div>
       <div class="stat-tile"><span class="stat-value">${stats.totalItemDrops}</span><span class="stat-label">RESOURCES FOUND</span></div>
       <div class="stat-tile"><span class="stat-value">${stats.avgItemDropsPerMission.toFixed(1)}</span><span class="stat-label">AVG RESOURCES / MISSION</span></div>
     </div>
 
-    <h3>POI Frequency</h3>
+    ${poiScopeNote}
+    <h3>Minor Place Frequency</h3>
     ${barChartHtml(poiChartRows)}
     <table class="stats-table">
-      <thead><tr><th>POI Type</th><th>Count</th><th>% of POIs</th><th>Avg / Mission</th></tr></thead>
+      <thead><tr><th>Minor Place Type</th><th>Count</th><th>% of Minor Places</th><th>Avg / Mission</th></tr></thead>
       <tbody>
         ${config.poiTypes.map((p) => `
           <tr>
@@ -924,7 +1201,7 @@ function statsHtml(stats) {
       </tbody>
     </table>
 
-    <h3>Drop Probability by POI</h3>
+    <h3>Drop Probability by Minor Place</h3>
     ${dropProbabilityHeatmapHtml(stats)}
     ${config.poiTypes.map((p) => `
       <div class="drop-table-wrap">
@@ -1047,16 +1324,17 @@ async function refreshGlobalStats() {
 
 /* ---------------- Page nav ---------------- */
 
+function showPage(page) {
+  document.querySelectorAll('.page-nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
+  el('tally-page')?.classList.toggle('hidden', page !== 'tally');
+  el('stats-page')?.classList.toggle('hidden', page !== 'stats');
+  el('log-page')?.classList.toggle('hidden', page !== 'log');
+  if (page === 'log') renderLogPage();
+  refreshQuickGuideIfOpen();
+}
+
 document.querySelectorAll('.page-nav-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.page-nav-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    const page = btn.dataset.page;
-    el('tally-page')?.classList.toggle('hidden', page !== 'tally');
-    el('stats-page')?.classList.toggle('hidden', page !== 'stats');
-    el('log-page')?.classList.toggle('hidden', page !== 'log');
-    if (page === 'log') renderLogPage();
-  });
+  btn.addEventListener('click', () => showPage(btn.dataset.page));
 });
 
 /* ---------------- Mission log (edit / delete saved missions) ---------------- */
@@ -1083,6 +1361,10 @@ function missionEditFormHtml(mission) {
         <select class="squad-select log-edit-field" data-field="faction">${optList(config.factions, mission.faction)}</select>
         <select class="squad-select log-edit-field" data-field="planet">${optList(config.planets, mission.planet)}</select>
       </div>
+      <label class="mission-check">
+        <input type="checkbox" class="log-edit-checkbox" data-field="allMinorPlacesCollected"${mission.allMinorPlacesCollected ? ' checked' : ''} />
+        <span>I think this mission collected all Minor Places on the map</span>
+      </label>
       ${config.poiTypes.map((p) => `
         <div class="log-edit-poi">
           <div class="row">
@@ -1121,7 +1403,7 @@ function renderLogPage() {
       .map((p) => ({ name: p.name, count: m.poiCounts?.[p.id] || 0 }))
       .filter((x) => x.count > 0)
       .map((x) => `${x.count}x ${x.name}`)
-      .join(', ') || 'No POIs tallied';
+      .join(', ') || 'No minor places tallied';
     const itemSummary = config.itemTypes
       .map((i) => ({ name: i.name, total: config.poiTypes.reduce((sum, p) => sum + (m.itemDrops?.[p.id]?.[i.id] || 0), 0) }))
       .filter((x) => x.total > 0)
@@ -1136,6 +1418,7 @@ function renderLogPage() {
             <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
             <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
             <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
+            ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
           </div>
         </div>
         <div class="log-card-summary">${esc(poiSummary)} — ${esc(itemSummary)}</div>
@@ -1186,6 +1469,7 @@ on('log-list', 'click', async (e) => {
     const form = card.querySelector('.log-edit-form');
     const patch = {};
     form.querySelectorAll('.log-edit-field').forEach((sel) => { patch[sel.dataset.field] = sel.value; });
+    patch.allMinorPlacesCollected = !!form.querySelector('.log-edit-checkbox[data-field="allMinorPlacesCollected"]')?.checked;
     const poiCounts = {};
     const itemDrops = {};
     config.poiTypes.forEach((p) => {
@@ -1225,6 +1509,10 @@ function renderGlobalLogFilterSelects() {
 function globalMissionDetailHtml(m) {
   return `
     <div class="log-view-detail hidden">
+      <div class="row">
+        <span class="denom-label">All Minor Places Collected</span>
+        <span class="log-view-value">${m.allMinorPlacesCollected ? 'Yes' : 'No'}</span>
+      </div>
       ${config.poiTypes.map((p) => `
         <div class="log-edit-poi">
           <div class="row">
@@ -1252,7 +1540,7 @@ function globalMissionCardHtml(m) {
     .map((p) => ({ name: p.name, count: m.poiCounts?.[p.id] || 0 }))
     .filter((x) => x.count > 0)
     .map((x) => `${x.count}x ${x.name}`)
-    .join(', ') || 'No POIs tallied';
+    .join(', ') || 'No minor places tallied';
   return `
     <div class="log-card" data-id="${esc(m.id)}">
       <div class="log-card-header">
@@ -1262,7 +1550,8 @@ function globalMissionCardHtml(m) {
           <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
           <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
           <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
-          <span class="log-tag">${totalPois(m)} POI${totalPois(m) === 1 ? '' : 'S'}</span>
+          ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
+          <span class="log-tag">${totalPois(m)} MPOI${totalPois(m) === 1 ? '' : 'S'}</span>
         </div>
       </div>
       <div class="log-card-summary">${esc(poiSummary)}</div>
@@ -1529,6 +1818,8 @@ function init() {
   safe(renderBackfillSelects, 'renderBackfillSelects');
   safe(renderStats, 'renderStats');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');
+  safe(() => startQuickGuide(false), 'startQuickGuide');
+  document.fonts?.ready?.then(() => refreshQuickGuideIfOpen());
   syncPendingMissions().then(() => {
     if (!el('stats-global')?.classList.contains('hidden')) refreshGlobalStats();
   }).catch((err) => console.error('Stat Gatherer: initial sync failed', err));

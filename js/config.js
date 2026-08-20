@@ -15,7 +15,6 @@ const DEFAULT_ITEM_VALUES = {
   requisition: 100,
   super_credits: 11,
   guns: 1,
-  common_samples: 1,
   rare_samples: 1,
 };
 
@@ -28,7 +27,6 @@ const DEFAULT_DENOMINATIONS = {
   requisition: [100, 1000],
   super_credits: [10, 100],
   guns: [],
-  common_samples: [],
   rare_samples: [],
 };
 
@@ -336,9 +334,8 @@ export const DEFAULT_CONFIG = {
   itemTypes: [
     { id: 'medals', name: 'Medals', icon: 'assets/icons/medals.webp', value: DEFAULT_ITEM_VALUES.medals, denominations: DEFAULT_DENOMINATIONS.medals },
     { id: 'requisition', name: 'Requisition Slips', icon: 'assets/icons/requisition.webp', value: DEFAULT_ITEM_VALUES.requisition, denominations: DEFAULT_DENOMINATIONS.requisition },
-    { id: 'super_credits', name: 'Super Credits', icon: 'assets/icons/super_credits.webp', value: DEFAULT_ITEM_VALUES.super_credits, denominations: DEFAULT_DENOMINATIONS.super_credits },
+    { id: 'super_credits', name: 'Super Credits', icon: 'assets/icons/super_credits.svg', value: DEFAULT_ITEM_VALUES.super_credits, denominations: DEFAULT_DENOMINATIONS.super_credits },
     { id: 'guns', name: 'Weapons', icon: 'assets/icons/weapons.svg', value: DEFAULT_ITEM_VALUES.guns, denominations: DEFAULT_DENOMINATIONS.guns },
-    { id: 'common_samples', name: 'Common Samples', icon: 'assets/icons/common_samples.webp', value: DEFAULT_ITEM_VALUES.common_samples, denominations: DEFAULT_DENOMINATIONS.common_samples },
     { id: 'rare_samples', name: 'Rare Samples', icon: 'assets/icons/rare_samples.webp', value: DEFAULT_ITEM_VALUES.rare_samples, denominations: DEFAULT_DENOMINATIONS.rare_samples },
   ],
   difficulties: DEFAULT_DIFFICULTIES,
@@ -362,6 +359,13 @@ export function loadConfig() {
     if (!Array.isArray(parsed.difficulties)) parsed.difficulties = structuredClone(DEFAULT_DIFFICULTIES);
     if (!Array.isArray(parsed.factions)) parsed.factions = structuredClone(DEFAULT_FACTIONS);
     if (!Array.isArray(parsed.planets)) parsed.planets = structuredClone(DEFAULT_PLANETS);
+    // Taxonomy is app-owned/fixed now, including removals — prune anything
+    // that no longer exists in the shipped defaults so stale cached configs
+    // don't keep rendering obsolete items like Common Samples forever.
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+      const allowedIds = new Set(DEFAULT_CONFIG[key].map((entry) => entry.id));
+      parsed[key] = parsed[key].filter((entry) => allowedIds.has(entry.id));
+    });
     // The taxonomy is fixed and shipped with the app, but a user's saved
     // config predates additions like this one — merge in any default entries
     // (by id) that aren't already present, across all five taxonomy lists,

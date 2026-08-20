@@ -8,6 +8,7 @@ const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
 const LAST_PLANET_KEY = 'sg_last_planet';
 const LAST_FACTION_KEY = 'sg_last_faction';
 const SIMPLIFIED_VIEW_KEY = 'sg_simplified_view';
+const QUICK_GUIDE_SEEN_KEY = 'sg_quick_guide_seen';
 
 // crypto.randomUUID() only exists in "secure contexts" — HTTPS, or the
 // `localhost` origin specifically. Testing from a second device by hitting
@@ -34,17 +35,24 @@ function generateId() {
 // inline rows with a plain "+1 FOUND" and manual tallying (off) — one
 // switch for both, visible right on the Tally page (not tucked into
 // Settings). Returns `null` when nothing's been saved yet, distinct from an
-// explicit `false` — main.js only falls back to a width-based guess in that
-// case, and doesn't persist that guess, so it isn't "sticky" until the user
-// actually flips the toggle themselves. No auto-following window size after
-// that (deliberate — a visible on-page toggle that silently gets overridden
-// by a resize would undermine the point of giving direct control).
+// explicit `false` — main.js treats that as "default to Simplified ON" until
+// the user explicitly flips the toggle themselves. No auto-following window
+// size after that (deliberate — a visible on-page toggle that silently gets
+// overridden by a resize would undermine the point of giving direct control).
 export function getSimplifiedView() {
   const raw = localStorage.getItem(SIMPLIFIED_VIEW_KEY);
   return raw === null ? null : raw === 'true';
 }
 export function setSimplifiedView(enabled) {
   localStorage.setItem(SIMPLIFIED_VIEW_KEY, enabled ? 'true' : 'false');
+}
+
+export function hasSeenQuickGuide() {
+  return localStorage.getItem(QUICK_GUIDE_SEEN_KEY) === 'true';
+}
+
+export function setQuickGuideSeen(seen) {
+  localStorage.setItem(QUICK_GUIDE_SEEN_KEY, seen ? 'true' : 'false');
 }
 
 export function getLastDifficulty() {
@@ -141,6 +149,7 @@ function blankMission(config) {
     id: generateId(),
     startedAt: Date.now(),
     endedAt: null,
+    allMinorPlacesCollected: false,
     squadMode: getLastSquadMode(),
     difficulty: getLastDifficulty(),
     planet: getLastPlanet(),
@@ -155,6 +164,7 @@ function reconcileWithConfig(mission, config) {
     // Backfill missions saved before squad-mode tagging existed: unknown, not assumed solo.
     mission.squadMode = 'unknown';
   }
+  if (mission.allMinorPlacesCollected === undefined) mission.allMinorPlacesCollected = false;
   if (mission.difficulty === undefined) mission.difficulty = '';
   if (mission.planet === undefined) mission.planet = '';
   if (mission.faction === undefined) mission.faction = '';
@@ -289,4 +299,5 @@ export function resetAllData() {
   localStorage.removeItem(CURRENT_MISSION_KEY);
   localStorage.removeItem(HISTORY_KEY);
   localStorage.removeItem(DENOM_TALLY_KEY);
+  localStorage.removeItem(QUICK_GUIDE_SEEN_KEY);
 }

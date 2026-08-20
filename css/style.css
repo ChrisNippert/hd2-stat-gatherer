@@ -253,47 +253,38 @@ main {
   gap: 22px;
 }
 
-/* Sticky strip for the mission-setup hamburger only (narrow viewports,
-   see #mission-config-btn) — a direct child of #tally-page, independent of
-   both the sidebar/drawer's column and the POI panel, so its presence
-   never affects either one's height. The Add Point of Interest button
-   used to live in here too, but that meant the sidebar's effective height
-   shifted depending on whether Simplified View (which shows/hides that
-   button) was on — moved into #poi-panel itself instead (see .quick-add-bar
-   below) so toggling Simplified View only ever affects the POI panel,
-   never the sidebar next to it. */
-.mobile-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
+/* Points-of-interest heading and the narrow-viewport mission drawer trigger
+   share one row so phones don't burn a whole extra strip of vertical space
+   on a lone hamburger button above the panel. At wide desktop sizes the
+   drawer doesn't exist — mission setup is already the always-visible
+   sidebar — so the button is simply hidden there. */
+.poi-panel-head {
   display: flex;
-  gap: 8px;
-  padding: 10px;
-  margin: -22px -22px 0;
-  background: var(--bg-panel);
-  border-bottom: 2px solid var(--se-yellow-dim);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
 }
 
-/* Opens the mission-setup panel as a slide-out drawer instead of it eating
-   a full-width row above the POI cards — below 1300px there isn't room for
-   both the sidebar layout and a comfortably-sized POI area, so config
-   moves off-canvas here. Applies regardless of Simplified View, since a
-   narrow window is cramped either way. Hiding the whole toolbar strip
-   (not just the button) above that width is enough on its own now — the
-   toolbar has nothing else in it, so there's no empty-strip case left to
-   guard against the way there was when the Add POI button also lived here. */
+.poi-panel-head .panel-title {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 #mission-config-btn { flex: 0 0 auto; }
 
 @media (min-width: 1300px) {
-  .mobile-toolbar { display: none; }
+  #mission-config-btn { display: none; }
 }
 
-/* Lives inside #poi-panel now (previously in .mobile-toolbar, spanning
-   the full page width above both the sidebar and the POI panel) — see the
-   .mobile-toolbar comment above for why. Bleeds to the panel's own edges
-   (not the page's) via a negative margin matching #poi-panel's own 20px
-   padding, so it still reads as a full-width sticky header bar, just
-   scoped to this one section instead of the whole page. */
+/* Lives directly under the POI panel heading and bleeds to the panel's own
+   edges (not the page's) via a negative margin matching #poi-panel's 20px
+   padding, so it still reads as a full-width sticky header bar, just scoped
+   to this one section instead of the whole page. */
 .quick-add-bar {
   position: sticky;
   top: 0;
@@ -347,6 +338,17 @@ main {
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 10px;
+}
+
+.poi-mission-actions {
+  display: none;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.poi-mission-actions .btn {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* ---------- Mission panel ---------- */
@@ -403,14 +405,14 @@ main {
 }
 
 /* Below the sidebar breakpoint, mission setup lives behind the hamburger
-   (#mission-config-btn, in .mobile-toolbar) as an off-canvas drawer instead
-   of stacking inline above the POI cards — that inline stack is exactly
-   what was eating the vertical space that kept "Add Point of Interest" +
-   the POI cards from fitting on one phone screen. Same drawer treatment as
-   #settings-panel (see below), just anchored to the left instead of the
-   right so it doesn't collide with that one. Applies on both Simplified
-   View and classic layout — it's a viewport-width concern, not a layout-
-   mode one. */
+   (#mission-config-btn, now in .poi-panel-head) as an off-canvas drawer
+   instead of stacking inline above the POI cards — that inline stack is
+   exactly what was eating the vertical space that kept "Add Point of
+   Interest" + the POI cards from fitting on one phone screen. Same drawer
+   treatment as #settings-panel (see below), just anchored to the left
+   instead of the right so it doesn't collide with that one. Applies on
+   both Simplified View and classic layout — it's a viewport-width concern,
+   not a layout-mode one. */
 @media (max-width: 1299px) {
   #tally-page > .mission-panel {
     position: fixed;
@@ -436,12 +438,15 @@ main {
   #tally-page > .mission-panel .mission-actions {
     flex-direction: column;
   }
+  #tally-page > .mission-panel .mission-actions,
+  #tally-page > .mission-panel .mission-check { display: none; }
   #tally-page > .mission-panel .squad-select,
   #tally-page > .mission-panel .btn {
     width: 100%;
   }
-
   .mission-panel-close { display: inline-flex; }
+  .poi-mission-actions { display: flex; }
+  .poi-mission-actions { display: flex; }
 }
 
 .mission-panel-close { display: none; }
@@ -455,6 +460,32 @@ main {
 .mission-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
 .mission-meta-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+
+.mission-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+
+.mission-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--se-yellow);
+  flex: 0 0 auto;
+}
+
+.mission-check span {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
 
 .squad-mode { display: flex; flex-direction: column; gap: 4px; }
 
@@ -740,7 +771,7 @@ main {
    signal there; max-height stays as the second condition for landscape
    phones and short desktop windows, where width alone wouldn't catch it. */
 @media (max-width: 480px), (max-height: 740px) {
-  .hud-header { padding: 8px 16px; gap: 8px; }
+  .hud-header { padding: 8px 18px 8px 20px; gap: 8px; }
   .brand-star { font-size: 22px; }
   .brand-text h1 { font-size: 22px; }
   .brand-sub { font-size: 11px; letter-spacing: 0.15em; }
@@ -752,14 +783,21 @@ main {
   .toggle-row-header .toggle-switch::before { width: 12px; height: 12px; }
   .toggle-row-header input:checked ~ .toggle-switch::before { transform: translateX(14px); }
   .toggle-row-header .toggle-label { font-size: 12px; }
-  .page-nav { padding: 0 16px; }
+  .page-nav { padding: 0 18px 0 20px; }
   .page-nav-btn { padding: 8px 14px; min-height: 40px; font-size: 14px; }
 
   main { padding: 10px; gap: 10px; }
-  .mobile-toolbar { padding: 5px; margin: -10px -10px 0; }
   #poi-panel { padding: 12px; }
+  .poi-panel-head { margin-bottom: 6px; padding-bottom: 5px; }
+  .poi-panel-head .panel-title { font-size: 20px; }
+  #mission-config-btn { min-width: 40px; min-height: 40px; padding: 4px 8px; font-size: 18px; }
+  .mission-check { padding: 10px 12px; }
+  .mission-check span { font-size: 14px; }
+  .poi-mission-actions { margin-bottom: 10px; }
+  .poi-mission-actions .btn { font-size: 14px; padding: 10px 8px; min-height: 42px; }
+  .submit-popup { width: min(360px, 94vw); padding: 16px; }
+  .submit-popup h3 { font-size: 22px; }
   .quick-add-bar { padding: 8px; margin: -12px -12px 12px; }
-  #poi-panel > .panel-title { margin-bottom: 6px; padding-bottom: 5px; font-size: 20px; }
   #poi-panel > .hint { display: none; }
   .poi-grid { gap: 8px; }
   .poi-card { padding: 8px; }
@@ -775,6 +813,12 @@ main {
   .item-tile .item-icon { font-size: 20px; }
   .item-tile-name { font-size: 13px; }
   .item-tile-sub { font-size: 10px; }
+  .item-popup { width: min(360px, 94vw); max-height: min(86vh, 680px); padding: 16px; }
+  .item-popup-header { margin-bottom: 14px; }
+  .item-popup .poi-items { gap: 8px; }
+  .item-popup .item-tile { min-height: 64px; padding: 10px 6px; }
+  .guide-callout { width: min(340px, calc(100vw - 20px)); padding: 16px; }
+  .guide-callout h3 { font-size: 19px; }
 
   /* The single biggest remaining lever on a short phone screen: collapse
      each POI card's item-tile grid to just its header + count row by
@@ -910,11 +954,14 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   transform: translate(-50%, -46%) scale(0.96);
   opacity: 0;
   width: min(360px, 92vw);
+  max-height: min(82vh, 720px);
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   padding: 20px;
   z-index: 150;
   clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   pointer-events: none;
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
@@ -945,6 +992,136 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 }
 
 .item-popup-count { font-family: 'Staatliches', sans-serif; font-size: 32px; min-width: 50px; text-align: center; }
+
+/* ---------- Mission submission popup ---------- */
+.submit-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -46%) scale(0.96);
+  opacity: 0;
+  width: min(420px, 94vw);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  padding: 20px;
+  z-index: 150;
+  clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.submit-popup.is-open {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.submit-popup h3 {
+  font-size: 26px;
+  margin-bottom: 10px;
+}
+
+.submit-popup p {
+  margin: 0 0 14px;
+  color: var(--text-light);
+  line-height: 1.45;
+}
+
+.submit-popup .hint { margin-bottom: 16px; }
+
+.submit-popup-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.submit-popup-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.submit-popup-cancel {
+  margin-top: 10px;
+  text-align: right;
+}
+
+/* ---------- First-run guide ---------- */
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 4, 0.82);
+  backdrop-filter: blur(2px);
+  z-index: 1200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.guide-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.guide-callout {
+  position: fixed;
+  width: min(360px, calc(100vw - 24px));
+  background: var(--bg-panel);
+  border: 1px solid var(--se-yellow-dim);
+  padding: 18px;
+  z-index: 1210;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  clip-path: polygon(0 12px, 12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+}
+
+.guide-callout.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.guide-highlight {
+  position: fixed;
+  border: 2px solid var(--se-yellow);
+  box-shadow: 0 0 0 4px rgba(255, 212, 0, 0.16), 0 0 22px rgba(255, 212, 0, 0.18);
+  z-index: 1205;
+  pointer-events: none;
+  border-radius: 4px;
+}
+
+.guide-kicker {
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.18em;
+  margin-bottom: 8px;
+}
+
+.guide-callout h3 {
+  font-size: 21px;
+  margin-bottom: 8px;
+}
+
+.guide-callout p {
+  margin: 0;
+  color: var(--text-light);
+  line-height: 1.45;
+}
+
+.guide-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.guide-focus-target {
+  position: relative !important;
+  z-index: 1215 !important;
+  outline: 2px solid var(--se-yellow);
+  box-shadow: 0 0 0 4px rgba(255, 212, 0, 0.18);
+}
 
 .poi-progress {
   height: 8px;

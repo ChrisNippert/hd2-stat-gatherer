@@ -2,9 +2,12 @@ export function computeStats(missions, config) {
   const poi = {};
   const items = {};
   const dropChance = {};
+  const dropChancePoiCounts = {};
+  const poiScopedMissions = missions.filter((m) => m.allMinorPlacesCollected);
 
   config.poiTypes.forEach((p) => {
     poi[p.id] = { count: 0, pctOfPois: 0, perMission: 0 };
+    dropChancePoiCounts[p.id] = 0;
     dropChance[p.id] = {};
     config.itemTypes.forEach((i) => {
       dropChance[p.id][i.id] = { count: 0, totalSlots: 0, chance: 0 };
@@ -24,11 +27,17 @@ export function computeStats(missions, config) {
   let totalPois = 0;
   let totalItemDrops = 0;
 
-  missions.forEach((m) => {
+  poiScopedMissions.forEach((m) => {
     config.poiTypes.forEach((p) => {
       const c = (m.poiCounts && m.poiCounts[p.id]) || 0;
       poi[p.id].count += c;
       totalPois += c;
+    });
+  });
+
+  missions.forEach((m) => {
+    config.poiTypes.forEach((p) => {
+      dropChancePoiCounts[p.id] += (m.poiCounts && m.poiCounts[p.id]) || 0;
       config.itemTypes.forEach((i) => {
         const d = (m.itemDrops && m.itemDrops[p.id] && m.itemDrops[p.id][i.id]) || 0;
         dropChance[p.id][i.id].count += d;
@@ -39,11 +48,12 @@ export function computeStats(missions, config) {
   });
 
   const totalMissions = missions.length;
+  const poiMissionCount = poiScopedMissions.length;
 
   config.poiTypes.forEach((p) => {
     poi[p.id].pctOfPois = totalPois > 0 ? poi[p.id].count / totalPois : 0;
-    poi[p.id].perMission = totalMissions > 0 ? poi[p.id].count / totalMissions : 0;
-    const totalSlots = poi[p.id].count * p.slots;
+    poi[p.id].perMission = poiMissionCount > 0 ? poi[p.id].count / poiMissionCount : 0;
+    const totalSlots = dropChancePoiCounts[p.id] * p.slots;
     config.itemTypes.forEach((i) => {
       dropChance[p.id][i.id].totalSlots = totalSlots;
       dropChance[p.id][i.id].chance = totalSlots > 0 ? dropChance[p.id][i.id].count / totalSlots : 0;
@@ -60,9 +70,10 @@ export function computeStats(missions, config) {
 
   return {
     totalMissions,
+    poiMissionCount,
     totalPois,
     totalItemDrops,
-    avgPoisPerMission: totalMissions > 0 ? totalPois / totalMissions : 0,
+    avgPoisPerMission: poiMissionCount > 0 ? totalPois / poiMissionCount : 0,
     avgItemDropsPerMission: totalMissions > 0 ? totalItemDrops / totalMissions : 0,
     poi,
     items,

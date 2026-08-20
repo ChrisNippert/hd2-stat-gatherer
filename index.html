@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260824a" />
+<link rel="stylesheet" href="css/style.css?v=20260824m" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -41,9 +41,6 @@
 </nav>
 
 <main id="tally-page">
-  <div class="mobile-toolbar" id="mobile-toolbar">
-    <button id="mission-config-btn" class="btn btn-icon" aria-label="Mission Setup" title="Squad, difficulty, faction, planet, and mission actions">☰</button>
-  </div>
   <div id="mission-panel-overlay" class="settings-overlay hidden"></div>
   <section class="panel mission-panel" id="mission-panel">
     <button class="btn btn-icon close-btn mission-panel-close" id="close-mission-panel" aria-label="Close mission setup">✕</button>
@@ -77,9 +74,16 @@
   </section>
 
   <section class="panel" id="poi-panel">
-    <h2 class="panel-title">POINTS OF INTEREST</h2>
+    <div class="poi-panel-head">
+      <h2 class="panel-title">MINOR PLACES OF INTEREST</h2>
+      <button id="mission-config-btn" class="btn btn-icon" aria-label="Mission Setup" title="Squad, difficulty, faction, planet, and mission actions">☰</button>
+    </div>
+    <div class="poi-mission-actions">
+      <button id="poi-new-mission-btn" class="btn btn-primary">⚑ NEW MISSION — SAVE &amp; RESET</button>
+      <button id="poi-clear-mission-btn" class="btn btn-danger">🗑 CLEAR (DON'T SAVE)</button>
+    </div>
     <div class="quick-add-bar hidden" id="quick-add-bar"></div>
-    <p class="hint">Tap +1 FOUND to log a container, then pick what dropped from each slot until it's full. For Medals, Requisition, and Super Credits, pick the exact amount — that also tallies it for Drop Sizes, no need to enter it twice.</p>
+    <p class="hint">Tap +1 FOUND to log a minor place of interest, then pick what dropped from each slot until it's full. For Medals, Requisition, and Super Credits, pick the exact amount — that also tallies it for Drop Sizes, no need to enter it twice.</p>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
 </main>
@@ -136,12 +140,12 @@
         <select id="global-log-difficulty-filter" class="squad-select"></select>
         <select id="global-log-faction-filter" class="squad-select"></select>
         <select id="global-log-planet-filter" class="squad-select"></select>
-        <select id="global-log-poi-filter" class="squad-select" title="Total POIs found on the mission, across all POI types combined">
-          <option value="0">Any POIs Found</option>
-          <option value="1">1+ POIs Found</option>
-          <option value="3">3+ POIs Found</option>
-          <option value="5">5+ POIs Found</option>
-          <option value="10">10+ POIs Found</option>
+        <select id="global-log-poi-filter" class="squad-select" title="Total minor places found on the mission, across all minor place types combined">
+          <option value="0">Any Minor Places Found</option>
+          <option value="1">1+ Minor Places</option>
+          <option value="3">3+ Minor Places</option>
+          <option value="5">5+ Minor Places</option>
+          <option value="10">10+ Minor Places</option>
         </select>
       </div>
       <div id="global-log-list" class="log-list"></div>
@@ -210,6 +214,14 @@
     </div>
 
     <div class="settings-group">
+      <h3>Quick Guide</h3>
+      <p class="hint">Replay the first-run walkthrough if you want a refresher on the live tally flow.</p>
+      <div class="row">
+        <button id="replay-guide-btn" class="btn">Replay Guide</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <h3>Data</h3>
       <div class="row">
         <button id="export-json" class="btn">Export JSON</button>
@@ -223,11 +235,15 @@
   </div>
 </aside>
 
+<div id="guide-overlay" class="guide-overlay hidden"></div>
+<div id="guide-highlight" class="guide-highlight hidden" aria-hidden="true"></div>
+<aside id="guide-callout" class="guide-callout hidden"></aside>
+<div id="submit-popup-overlay" class="settings-overlay hidden"></div>
+<div id="submit-popup" class="submit-popup hidden"></div>
 <div id="item-popup-overlay" class="settings-overlay hidden"></div>
 <div id="item-popup" class="item-popup hidden"></div>
-
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260824a"></script>
+<script type="module" src="js/main.js?v=20260824m"></script>
 </body>
 </html>
