@@ -341,26 +341,41 @@ main {
 
 .poi-count-row .plus { flex: 1; width: auto; font-size: 15px; }
 
-.poi-items { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+/* Tap-to-tally tiles (mobile default) — one per item type on a POI card.
+   Tapping opens #item-popup (below) rather than exposing +/- controls
+   inline; this is what keeps a card with 6 item types compact instead of a
+   tall stack of rows on a small screen. `js/main.js` decides mobile vs
+   desktop by `window.innerWidth` (MOBILE_BREAKPOINT_PX, currently 640) and
+   adds `.poi-items-desktop` to switch to the always-expanded-rows layout
+   below — desktop has the room for it and a tap-to-open popup is one extra
+   step for no benefit there. */
+.poi-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
 
-.item-row {
+.poi-items-desktop {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.item-row-desktop {
   display: grid;
   grid-template-columns: 36px 1fr auto;
-  grid-template-areas: "icon name controls";
   align-items: center;
   gap: 10px;
   font-size: 16px;
   padding-bottom: 12px;
+  margin-bottom: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.item-row:last-child { padding-bottom: 0; border-bottom: none; }
+.item-row-desktop:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
 
-.item-row .item-icon { grid-area: icon; }
-.item-row .item-name { grid-area: name; }
-.item-row .item-controls { grid-area: controls; }
-
-.item-controls {
+.item-row-desktop .item-controls {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -368,19 +383,52 @@ main {
   flex-wrap: wrap;
 }
 
-/* Cards go single-column below ~620px (poi-grid's auto-fit minmax(300px)), so
-   below that a row's name + controls no longer both fit on one line — stack
-   icon+name on top and let controls span full width underneath instead of
-   squeezing the item name down to a clipped sliver. */
-@media (max-width: 600px) {
-  .item-row {
-    grid-template-columns: 36px 1fr;
-    grid-template-areas:
-      "icon name"
-      "controls controls";
-    row-gap: 8px;
-  }
-  .item-controls { justify-content: flex-start; }
+.item-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-color);
+  padding: 12px 6px;
+  min-height: 72px;
+  cursor: pointer;
+  touch-action: manipulation;
+  font-family: 'Oswald', sans-serif;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.item-tile:active { background: var(--bg-input); border-color: var(--se-yellow-dim); }
+
+.item-tile-name { font-size: 12px; color: var(--text-light); text-align: center; line-height: 1.25; }
+
+.item-tile-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--se-yellow);
+  color: #14150c;
+  font-weight: 700;
+  font-size: 11px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Simple icon+name+input row — only the Mission Log's edit form uses this
+   now (the Tally page uses .item-tile/.item-popup instead). */
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
 }
 
 /* One joined pill instead of N separate boxed buttons — reads as a single
@@ -410,8 +458,8 @@ main {
 .btn-denom-pick:hover { background: rgba(255, 227, 77, 0.08); color: var(--text-light); }
 .btn-denom-pick:active { background: var(--se-yellow-dim); color: #14150c; }
 
-.item-icon { font-size: 20px; text-align: center; justify-self: center; }
-img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain; justify-self: center; }
+.item-icon { font-size: 20px; text-align: center; }
+img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain; }
 
 .icon-inline {
   height: 22px;
@@ -421,8 +469,43 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   vertical-align: -6px;
   margin-right: 3px;
 }
-.item-name { min-width: 0; color: var(--text-light); }
+.item-name { flex: 1; min-width: 0; color: var(--text-light); }
 .item-count { min-width: 28px; text-align: center; font-weight: 600; font-size: 18px; }
+
+/* ---------- Item popup (tap a Tally-page item tile to tally a pickup) ---------- */
+.item-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, 92vw);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  padding: 20px;
+  z-index: 150;
+  clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+}
+
+.item-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.item-popup-heading { flex: 1; min-width: 0; }
+.item-popup-name { font-family: 'Staatliches', sans-serif; font-size: 22px; color: var(--se-yellow); }
+.item-popup-poi { font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; }
+
+.item-popup-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.item-popup-count { font-family: 'Staatliches', sans-serif; font-size: 32px; min-width: 50px; text-align: center; }
 
 .poi-progress {
   height: 8px;
@@ -674,6 +757,73 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .settings-group h3 { font-size: 19px; margin-bottom: 8px; }
 
 .hint { font-size: 14px; color: var(--text-dim); margin: 0 0 12px; }
+
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--se-yellow);
+  text-decoration: underline;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.slot-found-hint { color: var(--text-dim); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  width: fit-content;
+}
+
+.toggle-row input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  min-width: 46px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toggle-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--text-dim);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.toggle-row input:checked ~ .toggle-switch {
+  border-color: var(--se-yellow-dim);
+  background: #1f2a12;
+}
+
+.toggle-row input:checked ~ .toggle-switch::before {
+  transform: translateX(20px);
+  background: var(--se-yellow);
+}
+
+.toggle-row input:focus-visible ~ .toggle-switch { outline: 2px solid var(--se-yellow); outline-offset: 2px; }
+
+.toggle-label { font-size: 15px; color: var(--text-light); }
 
 .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 

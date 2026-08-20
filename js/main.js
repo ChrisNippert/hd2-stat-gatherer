@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820h';
-import * as state from './state.js?v=20260820h';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260820h';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260820h';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260821g';
+import * as state from './state.js?v=20260821g';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260821g';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260821g';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -86,6 +86,14 @@ function setSyncStatus(text, cls = '') {
   s.textContent = text;
   s.className = `sync-status ${cls}`;
 }
+
+function renderGuidedFlowToggle() {
+  el('guided-flow-toggle').checked = state.getGuidedFlowEnabled();
+}
+
+on('guided-flow-toggle', 'change', (e) => {
+  state.setGuidedFlowEnabled(e.target.checked);
+});
 
 /* ---------------- Squad mode ---------------- */
 
@@ -190,8 +198,41 @@ on('planet-input', 'change', (e) => {
 
 /* ---------------- POI grid ---------------- */
 
+// Below this width, item rows collapse into tap-to-open tiles (see the item
+// popup section) — a POI card showing 6 fully-expanded item rows works fine
+// with the room a desktop window has, but is a lot of scroll/small controls
+// on a phone. Above it, items render as classic always-visible inline rows,
+// no extra tap required. Re-checked on resize (not just at load) so a
+// desktop window narrowed past the breakpoint gets the mobile layout too.
+const MOBILE_BREAKPOINT_PX = 640;
+let isMobileLayout = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+window.addEventListener('resize', () => {
+  const nowMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+  if (nowMobile === isMobileLayout) return;
+  isMobileLayout = nowMobile;
+  closeItemPopup();
+  renderPoiGrid();
+});
+
 function slotsFilled(poiId) {
   return config.itemTypes.reduce((sum, i) => sum + (currentMission.itemDrops[poiId]?.[i.id] || 0), 0);
+}
+
+function itemRowControlsHtml(poiId, itemId) {
+  const i = config.itemTypes.find((x) => x.id === itemId);
+  const hasDenoms = i.denominations && i.denominations.length > 0;
+  const count = currentMission.itemDrops[poiId]?.[itemId] || 0;
+  const stack = hasDenoms ? (denomPickStacks[`${poiId}:${itemId}`] || []) : null;
+  const lastPick = stack && stack.length ? stack[stack.length - 1] : null;
+  return `
+    <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
+    <span class="item-count item-popup-count">${count}</span>
+    ${hasDenoms ? `
+      <div class="denom-pick-group" title="Tally the exact amount you picked up — this feeds Drop Sizes too, no need to double-enter it there">
+        ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="item-inc-denom" data-denom="${d}">+${d}</button>`).join('')}
+      </div>
+    ` : '<button class="btn btn-count plus" data-action="item-inc">+</button>'}
+  `;
 }
 
 function renderPoiGrid() {
@@ -216,26 +257,25 @@ function renderPoiGrid() {
           <span class="poi-count">${count}</span>
           <button class="btn btn-count plus" data-action="poi-inc">+1 FOUND</button>
         </div>
-        <div class="poi-items">
+        <div class="poi-items${isMobileLayout ? '' : ' poi-items-desktop'}">
           ${config.itemTypes.map((i) => {
-            const hasDenoms = i.denominations && i.denominations.length > 0;
-            const stack = hasDenoms ? (denomPickStacks[`${p.id}:${i.id}`] || []) : null;
-            const lastPick = stack && stack.length ? stack[stack.length - 1] : null;
+            if (isMobileLayout) {
+              const tileCount = currentMission.itemDrops[p.id]?.[i.id] || 0;
+              return `
+                <button class="item-tile" type="button" data-action="item-tile-open" data-item="${i.id}">
+                  ${iconBlock(i.icon)}
+                  <span class="item-tile-name">${esc(i.name)}</span>
+                  ${tileCount > 0 ? `<span class="item-tile-count">${tileCount}</span>` : ''}
+                </button>
+              `;
+            }
             return `
-            <div class="item-row" data-item="${i.id}">
-              ${iconBlock(i.icon)}
-              <span class="item-name">${esc(i.name)}</span>
-              <div class="item-controls">
-                <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
-                <span class="item-count">${currentMission.itemDrops[p.id]?.[i.id] || 0}</span>
-                ${hasDenoms ? `
-                  <div class="denom-pick-group" title="Tally the exact amount you picked up — this feeds Drop Sizes too, no need to double-enter it there">
-                    ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="item-inc-denom" data-denom="${d}">+${d}</button>`).join('')}
-                  </div>
-                ` : '<button class="btn btn-count plus" data-action="item-inc">+</button>'}
+              <div class="item-row-desktop" data-item="${i.id}">
+                ${iconBlock(i.icon)}
+                <span class="item-name">${esc(i.name)}</span>
+                <div class="item-controls">${itemRowControlsHtml(p.id, i.id)}</div>
               </div>
-            </div>
-          `;
+            `;
           }).join('')}
         </div>
         <div class="poi-progress"><div class="poi-progress-bar" style="width:${pct}%"></div></div>
@@ -249,6 +289,46 @@ function persistCurrentMission() {
   state.saveCurrentMission(currentMission);
 }
 
+// Shared by both the desktop inline rows (poi-grid's own click handler,
+// below) and the mobile item popup (next section) — same mutation, same
+// undo-stack bookkeeping, just triggered from two different bits of DOM.
+function tallyItemInc(poiId, itemId) {
+  currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
+  persistCurrentMission();
+  renderPoiGrid();
+  renderItemPopupIfOpen();
+  renderStats();
+}
+
+function tallyItemDec(poiId, itemId) {
+  const key = `${poiId}:${itemId}`;
+  if ((currentMission.itemDrops[poiId][itemId] || 0) > 0) {
+    const stack = denomPickStacks[key];
+    if (stack && stack.length > 0) {
+      const undoneDenom = stack.pop();
+      state.incrementDenomCount(itemId, undoneDenom, -1);
+      if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, undoneDenom, state.getDenomTally()[itemId][undoneDenom]).catch(() => {});
+    }
+    currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) - 1);
+  }
+  persistCurrentMission();
+  renderPoiGrid();
+  renderItemPopupIfOpen();
+  renderStats();
+}
+
+function tallyItemIncDenom(poiId, itemId, denom) {
+  const key = `${poiId}:${itemId}`;
+  currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
+  state.incrementDenomCount(itemId, denom, 1);
+  (denomPickStacks[key] || (denomPickStacks[key] = [])).push(denom);
+  if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, denom, state.getDenomTally()[itemId][denom]).catch(() => {});
+  persistCurrentMission();
+  renderPoiGrid();
+  renderItemPopupIfOpen();
+  renderStats();
+}
+
 on('poi-grid', 'click', (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -258,31 +338,29 @@ on('poi-grid', 'click', (e) => {
 
   if (action === 'poi-inc') {
     currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
+    persistCurrentMission();
+    renderPoiGrid();
+    renderStats();
+    // Finding a container starts the guided flow: pick what dropped, pick
+    // how much, repeat until this POI's slots (across however many of it
+    // you've found) are filled — see the "Item popup" section below.
+    // Settings → Guided Pickup Flow lets this be turned off in favor of just
+    // marking it found and tallying items manually, on mobile or desktop.
+    if (state.getGuidedFlowEnabled()) startGuidedFlow(poiId);
+    return;
   } else if (action === 'poi-dec') {
     currentMission.poiCounts[poiId] = Math.max(0, (currentMission.poiCounts[poiId] || 0) - 1);
-  } else if (action === 'item-inc' || action === 'item-dec') {
-    const itemRow = e.target.closest('.item-row');
-    const itemId = itemRow.dataset.item;
-    const delta = action === 'item-inc' ? 1 : -1;
-    if (action === 'item-dec' && (currentMission.itemDrops[poiId][itemId] || 0) > 0) {
-      const key = `${poiId}:${itemId}`;
-      const stack = denomPickStacks[key];
-      if (stack && stack.length > 0) {
-        const undoneDenom = stack.pop();
-        state.incrementDenomCount(itemId, undoneDenom, -1);
-        if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, undoneDenom, state.getDenomTally()[itemId][undoneDenom]).catch(() => {});
-      }
-    }
-    currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) + delta);
-  } else if (action === 'item-inc-denom') {
-    const itemRow = e.target.closest('.item-row');
-    const itemId = itemRow.dataset.item;
-    const denom = btn.dataset.denom;
-    const key = `${poiId}:${itemId}`;
-    currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
-    state.incrementDenomCount(itemId, denom, 1);
-    (denomPickStacks[key] || (denomPickStacks[key] = [])).push(denom);
-    if (serverUrl) submitDenomCount(serverUrl, clientId, itemId, denom, state.getDenomTally()[itemId][denom]).catch(() => {});
+  } else if (action === 'item-tile-open') {
+    showItemPopup(poiId, btn.dataset.item);
+    return;
+  } else if (action === 'item-inc' || action === 'item-dec' || action === 'item-inc-denom') {
+    // Only reachable on desktop — mobile's item-row markup isn't rendered at
+    // all below MOBILE_BREAKPOINT_PX, tiles/popup handle it there instead.
+    const itemId = e.target.closest('.item-row-desktop').dataset.item;
+    if (action === 'item-inc') tallyItemInc(poiId, itemId);
+    else if (action === 'item-dec') tallyItemDec(poiId, itemId);
+    else tallyItemIncDenom(poiId, itemId, btn.dataset.denom);
+    return;
   } else {
     return;
   }
@@ -291,11 +369,197 @@ on('poi-grid', 'click', (e) => {
   renderStats();
 });
 
+/* ---------------- Item popup ----------------
+   Two modes, one popup:
+   - "single" — tap an item tile (mobile) to tally just that item. Opens
+     straight to that item's controls (the −/count/denom-pick-or-plus row).
+   - "guided" — tap "+1 FOUND" on a POI. Walks through pick-item, then (for
+     denominated items) pick-amount, then loops back to pick-item for the
+     next slot, until this POI's total slots are filled. Mirrors physically
+     looting a bunker one slot at a time instead of tallying items in
+     whatever order/quantity you feel like afterward. */
+
+// { mode: 'single', poiId, itemId } | { mode: 'guided', poiId, itemId: string|null } | null
+// Guided mode's itemId is null while on the "pick an item" step, and set
+// once an item's been picked, while waiting on "pick an amount".
+let openItemPopup = null;
+
+function itemPopupHtml() {
+  const { mode, poiId, itemId } = openItemPopup;
+  const p = config.poiTypes.find((x) => x.id === poiId);
+
+  if (mode === 'guided') {
+    const foundCount = currentMission.poiCounts[poiId] || 0;
+    const totalSlots = foundCount * p.slots;
+    const filled = slotsFilled(poiId);
+    // The target grows every time "+1 FOUND" is tapped (totalSlots scales
+    // with how many of this POI you've found, not just its own slot count,
+    // shown on the card as a fixed "N SLOTS" that doesn't reflect that) — a
+    // double-tap or a mistaken extra tap inflates the target with no visual
+    // cue why, so the flow just keeps asking for more. Surface it and let it
+    // be undone right here instead of forcing a close-and-hunt-for-the-minus-
+    // button detour.
+    const foundFixHtml = foundCount > 1 ? `
+      <p class="hint slot-found-hint">${foundCount} found so far — tapped +1 FOUND more times than intended? <button class="btn-link" type="button" data-action="slot-fix-found">Undo one</button>.</p>
+    ` : '';
+    if (!itemId) {
+      return `
+        <div class="item-popup-header">
+          <div class="item-popup-heading">
+            <div class="item-popup-name">${esc(p.name)}</div>
+            <div class="item-popup-poi">Slot ${filled + 1} of ${totalSlots} — what dropped?</div>
+          </div>
+          <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
+        </div>
+        ${foundFixHtml}
+        <div class="poi-items">
+          ${config.itemTypes.map((i) => `
+            <button class="item-tile" type="button" data-action="slot-pick-item" data-item="${i.id}">
+              ${iconBlock(i.icon)}
+              <span class="item-tile-name">${esc(i.name)}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+    const i = config.itemTypes.find((x) => x.id === itemId);
+    return `
+      <div class="item-popup-header">
+        ${iconBlock(i.icon)}
+        <div class="item-popup-heading">
+          <div class="item-popup-name">${esc(i.name)}</div>
+          <div class="item-popup-poi">Slot ${filled + 1} of ${totalSlots} — how much?</div>
+        </div>
+        <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
+      </div>
+      ${foundFixHtml}
+      <div class="item-popup-controls">
+        <div class="denom-pick-group" title="Tally the exact amount you picked up — this feeds Drop Sizes too, no need to double-enter it there">
+          ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="slot-pick-amount" data-denom="${d}">+${d}</button>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  const i = config.itemTypes.find((x) => x.id === itemId);
+  return `
+    <div class="item-popup-header">
+      ${iconBlock(i.icon)}
+      <div class="item-popup-heading">
+        <div class="item-popup-name">${esc(i.name)}</div>
+        <div class="item-popup-poi">${esc(p.name)}</div>
+      </div>
+      <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
+    </div>
+    <div class="item-popup-controls">${itemRowControlsHtml(poiId, itemId)}</div>
+  `;
+}
+
+function renderItemPopupIfOpen() {
+  if (!openItemPopup) return;
+  el('item-popup').innerHTML = itemPopupHtml();
+}
+
+function openPopup(state) {
+  openItemPopup = state;
+  renderItemPopupIfOpen();
+  el('item-popup').classList.remove('hidden');
+  el('item-popup-overlay').classList.remove('hidden');
+}
+
+function showItemPopup(poiId, itemId) {
+  openPopup({ mode: 'single', poiId, itemId });
+}
+
+function startGuidedFlow(poiId) {
+  openPopup({ mode: 'guided', poiId, itemId: null });
+}
+
+function closeItemPopup() {
+  openItemPopup = null;
+  el('item-popup').classList.add('hidden');
+  el('item-popup-overlay').classList.add('hidden');
+}
+
+// After tallying one slot's pick (item, or item+amount), either loop back to
+// "pick an item" for the next slot or close once the POI's slots are full.
+function guidedAdvanceOrClose() {
+  if (!openItemPopup || openItemPopup.mode !== 'guided') return;
+  const { poiId } = openItemPopup;
+  const p = config.poiTypes.find((x) => x.id === poiId);
+  const totalSlots = (currentMission.poiCounts[poiId] || 0) * p.slots;
+  if (slotsFilled(poiId) >= totalSlots) {
+    closeItemPopup();
+  } else {
+    openItemPopup.itemId = null;
+    renderItemPopupIfOpen();
+  }
+}
+
+function guidedPickItem(itemId) {
+  if (!openItemPopup || openItemPopup.mode !== 'guided') return;
+  const { poiId } = openItemPopup;
+  const item = config.itemTypes.find((x) => x.id === itemId);
+  if (item.denominations && item.denominations.length > 0) {
+    openItemPopup.itemId = itemId;
+    renderItemPopupIfOpen();
+  } else {
+    tallyItemInc(poiId, itemId);
+    guidedAdvanceOrClose();
+  }
+}
+
+function guidedPickAmount(denom) {
+  if (!openItemPopup || openItemPopup.mode !== 'guided') return;
+  const { poiId, itemId } = openItemPopup;
+  tallyItemIncDenom(poiId, itemId, denom);
+  guidedAdvanceOrClose();
+}
+
+// Undoes one "+1 FOUND" tap from inside the guided popup itself — the fix
+// for accidentally inflating the target slot count (see the comment in
+// itemPopupHtml's guided branch). Shrinks totalSlots and re-checks whether
+// that's now enough to close, same as finishing a slot normally would.
+function guidedDecrementFound() {
+  if (!openItemPopup || openItemPopup.mode !== 'guided') return;
+  const { poiId } = openItemPopup;
+  currentMission.poiCounts[poiId] = Math.max(0, (currentMission.poiCounts[poiId] || 0) - 1);
+  persistCurrentMission();
+  renderPoiGrid();
+  guidedAdvanceOrClose();
+}
+
+on('item-popup-overlay', 'click', closeItemPopup);
+
+on('item-popup', 'click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === 'item-popup-close') {
+    closeItemPopup();
+    return;
+  }
+  if (!openItemPopup) return;
+
+  if (openItemPopup.mode === 'guided') {
+    if (action === 'slot-pick-item') guidedPickItem(btn.dataset.item);
+    else if (action === 'slot-pick-amount') guidedPickAmount(btn.dataset.denom);
+    else if (action === 'slot-fix-found') guidedDecrementFound();
+    return;
+  }
+
+  const { poiId, itemId } = openItemPopup;
+  if (action === 'item-inc') tallyItemInc(poiId, itemId);
+  else if (action === 'item-dec') tallyItemDec(poiId, itemId);
+  else if (action === 'item-inc-denom') tallyItemIncDenom(poiId, itemId, btn.dataset.denom);
+});
+
 /* ---------------- New Mission ---------------- */
 
 on('new-mission-btn', 'click', async () => {
   const { completed, fresh } = state.completeMission(config);
   currentMission = fresh;
+  closeItemPopup();
   renderPoiGrid();
   renderStats();
   renderSquadModeSelect();
@@ -337,6 +601,13 @@ async function syncPendingMissions() {
   }
   await syncDenomTally();
   await refreshGlobalDenoms();
+  // Global Stats' mission list (globalMissions) previously only refreshed
+  // when the GLOBAL STATS tab button was clicked — a delete/edit by another
+  // diver (or even your own, if the tab was already active before you left
+  // the page) would sit stale indefinitely. Refreshing it on every sync pass
+  // (same 30s interval already used for global denom data) means it self-
+  // heals instead of requiring a manual tab re-click.
+  await refreshGlobalStats();
 }
 
 // Denomination counts are small in volume (a handful of item x amount
@@ -752,7 +1023,14 @@ on('log-list', 'click', async (e) => {
       }
     }
     renderLogPage();
-    renderStats();
+    // refreshGlobalStats() re-fetches globalMissions and calls renderStats()
+    // itself — without a server it wouldn't pick up the deletion, so fall
+    // back to a plain renderStats() for the local-only view in that case.
+    if (serverUrl) {
+      await refreshGlobalStats();
+    } else {
+      renderStats();
+    }
     toast('Mission deleted.', 'success');
   } else if (action === 'log-save') {
     const form = card.querySelector('.log-edit-form');
@@ -899,6 +1177,7 @@ on('import-json-input', 'change', async (e) => {
       state.saveDenomTally(data.denomTally);
     }
     currentMission = state.getCurrentMission(config);
+    closeItemPopup();
     renderPoiGrid();
     renderStats();
     renderSquadModeSelect();
@@ -918,6 +1197,7 @@ on('reset-data', 'click', () => {
   if (!confirm('This will erase all local missions, drop-size tallies, and the in-progress mission. Continue?')) return;
   state.resetAllData();
   currentMission = state.getCurrentMission(config);
+  closeItemPopup();
   renderPoiGrid();
   renderStats();
   renderSquadModeSelect();
@@ -930,6 +1210,7 @@ on('reset-data', 'click', () => {
 
 function init() {
   safe(renderClientBadge, 'renderClientBadge');
+  safe(renderGuidedFlowToggle, 'renderGuidedFlowToggle');
   safe(renderPoiGrid, 'renderPoiGrid');
   safe(renderMissionMetaSelects, 'renderMissionMetaSelects');
   safe(renderStatsFilterSelects, 'renderStatsFilterSelects');

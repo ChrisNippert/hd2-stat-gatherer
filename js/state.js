@@ -7,6 +7,40 @@ const DENOM_TALLY_KEY = 'sg_denom_tally';
 const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
 const LAST_PLANET_KEY = 'sg_last_planet';
 const LAST_FACTION_KEY = 'sg_last_faction';
+const GUIDED_FLOW_KEY = 'sg_guided_flow_enabled';
+
+// crypto.randomUUID() only exists in "secure contexts" — HTTPS, or the
+// `localhost` origin specifically. Testing from a second device by hitting
+// the host machine's LAN IP over plain HTTP (e.g. http://192.168.1.20:8080)
+// is NOT a secure context even though the host's own `localhost` access is,
+// so crypto.randomUUID is simply undefined there — "crypto.randomUUID is
+// not a function" on any device other than the one running the dev server.
+// This id doesn't need to be cryptographically unpredictable (no private
+// data, same trust model as the rest of the app), so a Math.random()-based
+// v4-shaped fallback is fine.
+function generateId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Whether "+1 FOUND" walks through the pick-item/pick-amount popup loop, or
+// just marks the POI found and leaves tallying to the item tiles/rows —
+// same toggle applies on mobile and desktop. Defaults on; a saved value
+// (including an explicitly-set "false") always wins, same pattern as
+// getServerUrl()'s default-vs-saved distinction.
+export function getGuidedFlowEnabled() {
+  const raw = localStorage.getItem(GUIDED_FLOW_KEY);
+  return raw === null ? true : raw === 'true';
+}
+export function setGuidedFlowEnabled(enabled) {
+  localStorage.setItem(GUIDED_FLOW_KEY, enabled ? 'true' : 'false');
+}
 
 export function getLastDifficulty() {
   return localStorage.getItem(LAST_DIFFICULTY_KEY) || '';
@@ -63,7 +97,7 @@ export function setLastSquadMode(mode) {
 export function getClientId() {
   let id = localStorage.getItem(CLIENT_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateId();
     localStorage.setItem(CLIENT_ID_KEY, id);
   }
   return id;
@@ -99,7 +133,7 @@ function blankMission(config) {
     });
   });
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     startedAt: Date.now(),
     endedAt: null,
     squadMode: getLastSquadMode(),

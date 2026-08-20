@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820h" />
+<link rel="stylesheet" href="css/style.css?v=20260821g" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -67,7 +67,7 @@
 
   <section class="panel" id="poi-panel">
     <h2 class="panel-title">POINTS OF INTEREST</h2>
-    <p class="hint">For Medals, Requisition, and Super Credits, tap the exact amount you picked up — that also tallies it for Drop Sizes, no need to enter it twice.</p>
+    <p class="hint">Tap +1 FOUND to log a container, then pick what dropped from each slot until it's full. For Medals, Requisition, and Super Credits, pick the exact amount — that also tallies it for Drop Sizes, no need to enter it twice.</p>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
 </main>
@@ -130,6 +130,16 @@
     </div>
 
     <div class="settings-group">
+      <h3>Guided Pickup Flow</h3>
+      <p class="hint">Tapping "+1 FOUND" walks you through picking what dropped from each slot until the container's full — same behavior on mobile and desktop. Turn off to just mark it found and tally items yourself instead.</p>
+      <label class="toggle-row" for="guided-flow-toggle">
+        <input type="checkbox" id="guided-flow-toggle" checked />
+        <span class="toggle-switch"></span>
+        <span class="toggle-label">Enabled</span>
+      </label>
+    </div>
+
+    <div class="settings-group">
       <h3>Re-tag Missions</h3>
       <p class="hint">Bulk-relabel the squad mode on already-recorded missions — e.g. tag old unlabeled data as Solo. Re-tagged missions get pushed to the server again on the next sync.</p>
       <div class="row">
@@ -179,8 +189,11 @@
   </div>
 </aside>
 
+<div id="item-popup-overlay" class="settings-overlay hidden"></div>
+<div id="item-popup" class="item-popup hidden"></div>
+
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260820h"></script>
+<script type="module" src="js/main.js?v=20260821g"></script>
 </body>
 </html>
