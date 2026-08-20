@@ -239,6 +239,12 @@ h1, h2, h3, h4 {
 
 /* ---------- Layout ---------- */
 main {
+  /* On narrow phones body becomes a flex column to let #tally-page fill the
+     viewport height. Without an explicit width here, main turns into a flex
+     item with left/right auto margins and shrink-to-fit sizing, which is what
+     caused the whole Tally UI to render as a narrow centered column instead of
+     using the full screen width. */
+  width: 100%;
   max-width: 1150px;
   margin: 0 auto;
   padding: 22px;

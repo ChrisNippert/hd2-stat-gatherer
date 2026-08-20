@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260823r';
-import * as state from './state.js?v=20260823r';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260823r';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260823r';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824a';
+import * as state from './state.js?v=20260824a';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824a';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824a';
 
 let config = loadConfig();
 let clientId = state.getClientId();
