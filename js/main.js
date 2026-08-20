@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260821g';
-import * as state from './state.js?v=20260821g';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260821g';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260821g';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260823c';
+import * as state from './state.js?v=20260823c';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues } from './stats.js?v=20260823c';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260823c';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -43,6 +43,30 @@ function safe(fn, label) {
   }
 }
 
+// Real fade/slide/scale transitions for popups & panels instead of an
+// instant display:none toggle — display:none can't itself be transitioned
+// (the browser can't interpolate across it), so this removes .hidden, waits
+// two animation frames, then adds .is-open, which is what each element's CSS
+// actually transitions toward. Double RAF (not one) because a single frame
+// can get coalesced with the same paint in some browsers, silently skipping
+// the "just appeared, still at rest" frame the transition needs to start
+// from. Closing reverses it, waiting for the transition to finish (bounded
+// by a fallback timeout — an already-hidden element, or prefers-reduced-
+// motion's near-zero duration, might not fire transitionend cleanly) before
+// restoring display:none.
+function showAnimated(elm) {
+  if (!elm) return;
+  elm.classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => elm.classList.add('is-open')));
+}
+function hideAnimated(elm) {
+  if (!elm) return;
+  elm.classList.remove('is-open');
+  const finish = () => elm.classList.add('hidden');
+  elm.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 250);
+}
+
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -66,11 +90,19 @@ function iconInline(icon) {
 
 function toast(message, type = '') {
   const t = el('toast');
+  // Two separate timers (auto-dismiss, then the delayed re-hide after the
+  // fade-out finishes) both need clearing on every call — a toast firing
+  // again while a previous one is mid-fade-out would otherwise have its
+  // pending re-hide land on the NEW toast and yank it away early.
+  clearTimeout(toast._timer);
+  clearTimeout(toast._hideTimer);
   t.textContent = message;
   t.className = `toast ${type}`;
-  t.classList.remove('hidden');
-  clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => t.classList.add('hidden'), 3000);
+  requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('is-open')));
+  toast._timer = setTimeout(() => {
+    t.classList.remove('is-open');
+    toast._hideTimer = setTimeout(() => t.classList.add('hidden'), 220);
+  }, 3000);
 }
 
 /* ---------------- Client ID / sync status ---------------- */
@@ -86,14 +118,6 @@ function setSyncStatus(text, cls = '') {
   s.textContent = text;
   s.className = `sync-status ${cls}`;
 }
-
-function renderGuidedFlowToggle() {
-  el('guided-flow-toggle').checked = state.getGuidedFlowEnabled();
-}
-
-on('guided-flow-toggle', 'change', (e) => {
-  state.setGuidedFlowEnabled(e.target.checked);
-});
 
 /* ---------------- Squad mode ---------------- */
 
@@ -198,20 +222,33 @@ on('planet-input', 'change', (e) => {
 
 /* ---------------- POI grid ---------------- */
 
-// Below this width, item rows collapse into tap-to-open tiles (see the item
-// popup section) — a POI card showing 6 fully-expanded item rows works fine
-// with the room a desktop window has, but is a lot of scroll/small controls
-// on a phone. Above it, items render as classic always-visible inline rows,
-// no extra tap required. Re-checked on resize (not just at load) so a
-// desktop window narrowed past the breakpoint gets the mobile layout too.
+// Simplified View bundles two things that used to be separate controls
+// (an auto-detected mobile/desktop layout switch, and a Settings-page-only
+// guided-flow toggle) into one user-facing switch, visible right on the
+// Tally page instead of buried in Settings or silently inferred from window
+// width. ON: items are tap-to-open tiles, and "+1 FOUND" walks through the
+// pick-item/pick-amount loop. OFF: items are classic always-visible inline
+// rows, and "+1 FOUND" just marks it found — no popup, tally manually.
+// Defaults to a width-based guess on a fresh install (no saved preference
+// yet) but — deliberately, per explicit request — does NOT keep following
+// window size after that; once it's a visible on-page toggle, resizing out
+// from under the user's choice would undermine the point of giving them
+// direct control.
 const MOBILE_BREAKPOINT_PX = 640;
-let isMobileLayout = window.innerWidth <= MOBILE_BREAKPOINT_PX;
-window.addEventListener('resize', () => {
-  const nowMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX;
-  if (nowMobile === isMobileLayout) return;
-  isMobileLayout = nowMobile;
+let simplifiedView = state.getSimplifiedView();
+if (simplifiedView === null) simplifiedView = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+
+function renderSimplifiedViewToggle() {
+  const t = el('simplified-view-toggle');
+  if (t) t.checked = simplifiedView;
+}
+
+on('simplified-view-toggle', 'change', (e) => {
+  simplifiedView = e.target.checked;
+  state.setSimplifiedView(simplifiedView);
   closeItemPopup();
   renderPoiGrid();
+  renderQuickAddBar();
 });
 
 function slotsFilled(poiId) {
@@ -257,9 +294,9 @@ function renderPoiGrid() {
           <span class="poi-count">${count}</span>
           <button class="btn btn-count plus" data-action="poi-inc">+1 FOUND</button>
         </div>
-        <div class="poi-items${isMobileLayout ? '' : ' poi-items-desktop'}">
+        <div class="poi-items${simplifiedView ? '' : ' poi-items-desktop'}">
           ${config.itemTypes.map((i) => {
-            if (isMobileLayout) {
+            if (simplifiedView) {
               const tileCount = currentMission.itemDrops[p.id]?.[i.id] || 0;
               return `
                 <button class="item-tile" type="button" data-action="item-tile-open" data-item="${i.id}">
@@ -329,6 +366,45 @@ function tallyItemIncDenom(poiId, itemId, denom) {
   renderStats();
 }
 
+// Shared by the quick-add bar and each card's own "+1 FOUND" button — same
+// effect either way, just two different places to trigger it from so
+// logging a find never requires scrolling to the specific POI's card.
+function foundPoi(poiId) {
+  currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
+  persistCurrentMission();
+  renderPoiGrid();
+  renderStats();
+  // Finding a container starts the guided flow: pick what dropped, pick
+  // how much, repeat until this POI's slots (across however many of it
+  // you've found) are filled — see the "Item popup" section below. The
+  // Simplified View toggle (right on the Tally page) turns this off in
+  // favor of just marking it found and tallying items manually.
+  if (simplifiedView) startGuidedFlow(poiId);
+}
+
+// Only shown in Simplified View — that's specifically where scrolling to a
+// POI card's own "+1 FOUND" is the annoyance this bar solves (tap-to-open
+// tiles are compact, so a card can be scrolled well out of view). In the
+// non-simplified inline-row layout every card's full controls are already
+// visible on the page, so the bar is just a redundant sticky strip eating
+// vertical space — removing it there is what keeps that view fitting the
+// screen without scrolling.
+function renderQuickAddBar() {
+  const bar = el('quick-add-bar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', !simplifiedView);
+  if (!simplifiedView) return;
+  bar.innerHTML = config.poiTypes.map((p) => `
+    <button class="quick-add-btn" type="button" data-action="quick-add" data-poi="${p.id}">+ ${esc(p.name)}</button>
+  `).join('');
+}
+
+on('quick-add-bar', 'click', (e) => {
+  const btn = e.target.closest('button[data-action="quick-add"]');
+  if (!btn) return;
+  foundPoi(btn.dataset.poi);
+});
+
 on('poi-grid', 'click', (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -337,16 +413,7 @@ on('poi-grid', 'click', (e) => {
   const action = btn.dataset.action;
 
   if (action === 'poi-inc') {
-    currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
-    persistCurrentMission();
-    renderPoiGrid();
-    renderStats();
-    // Finding a container starts the guided flow: pick what dropped, pick
-    // how much, repeat until this POI's slots (across however many of it
-    // you've found) are filled — see the "Item popup" section below.
-    // Settings → Guided Pickup Flow lets this be turned off in favor of just
-    // marking it found and tallying items manually, on mobile or desktop.
-    if (state.getGuidedFlowEnabled()) startGuidedFlow(poiId);
+    foundPoi(poiId);
     return;
   } else if (action === 'poi-dec') {
     currentMission.poiCounts[poiId] = Math.max(0, (currentMission.poiCounts[poiId] || 0) - 1);
@@ -354,8 +421,8 @@ on('poi-grid', 'click', (e) => {
     showItemPopup(poiId, btn.dataset.item);
     return;
   } else if (action === 'item-inc' || action === 'item-dec' || action === 'item-inc-denom') {
-    // Only reachable on desktop — mobile's item-row markup isn't rendered at
-    // all below MOBILE_BREAKPOINT_PX, tiles/popup handle it there instead.
+    // Only reachable with Simplified View off — .item-row-desktop isn't
+    // rendered at all when it's on, tiles/popup handle it there instead.
     const itemId = e.target.closest('.item-row-desktop').dataset.item;
     if (action === 'item-inc') tallyItemInc(poiId, itemId);
     else if (action === 'item-dec') tallyItemDec(poiId, itemId);
@@ -463,8 +530,8 @@ function renderItemPopupIfOpen() {
 function openPopup(state) {
   openItemPopup = state;
   renderItemPopupIfOpen();
-  el('item-popup').classList.remove('hidden');
-  el('item-popup-overlay').classList.remove('hidden');
+  showAnimated(el('item-popup'));
+  showAnimated(el('item-popup-overlay'));
 }
 
 function showItemPopup(poiId, itemId) {
@@ -477,8 +544,8 @@ function startGuidedFlow(poiId) {
 
 function closeItemPopup() {
   openItemPopup = null;
-  el('item-popup').classList.add('hidden');
-  el('item-popup-overlay').classList.add('hidden');
+  hideAnimated(el('item-popup'));
+  hideAnimated(el('item-popup-overlay'));
 }
 
 // After tallying one slot's pick (item, or item+amount), either loop back to
@@ -566,6 +633,16 @@ on('new-mission-btn', 'click', async () => {
   renderMissionMetaSelects();
   toast('Mission saved. New mission started.', 'success');
   await trySyncMission(completed);
+});
+
+on('clear-mission-btn', 'click', () => {
+  if (!confirm('Discard the current in-progress mission without saving it? This cannot be undone.')) return;
+  currentMission = state.discardCurrentMission(config);
+  closeItemPopup();
+  renderPoiGrid();
+  renderSquadModeSelect();
+  renderMissionMetaSelects();
+  toast('Mission cleared — nothing was saved.', 'success');
 });
 
 async function trySyncMission(mission) {
@@ -1062,12 +1139,12 @@ on('log-list', 'click', async (e) => {
 /* ---------------- Settings panel ---------------- */
 
 function openSettings() {
-  el('settings-panel').classList.remove('hidden');
-  el('settings-overlay').classList.remove('hidden');
+  showAnimated(el('settings-panel'));
+  showAnimated(el('settings-overlay'));
 }
 function closeSettings() {
-  el('settings-panel').classList.add('hidden');
-  el('settings-overlay').classList.add('hidden');
+  hideAnimated(el('settings-panel'));
+  hideAnimated(el('settings-overlay'));
 }
 on('settings-btn', 'click', openSettings);
 on('client-badge', 'click', openSettings);
@@ -1178,6 +1255,7 @@ on('import-json-input', 'change', async (e) => {
     }
     currentMission = state.getCurrentMission(config);
     closeItemPopup();
+    renderQuickAddBar();
     renderPoiGrid();
     renderStats();
     renderSquadModeSelect();
@@ -1210,7 +1288,8 @@ on('reset-data', 'click', () => {
 
 function init() {
   safe(renderClientBadge, 'renderClientBadge');
-  safe(renderGuidedFlowToggle, 'renderGuidedFlowToggle');
+  safe(renderSimplifiedViewToggle, 'renderSimplifiedViewToggle');
+  safe(renderQuickAddBar, 'renderQuickAddBar');
   safe(renderPoiGrid, 'renderPoiGrid');
   safe(renderMissionMetaSelects, 'renderMissionMetaSelects');
   safe(renderStatsFilterSelects, 'renderStatsFilterSelects');

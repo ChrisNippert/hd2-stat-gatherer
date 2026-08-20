@@ -7,7 +7,7 @@ const DENOM_TALLY_KEY = 'sg_denom_tally';
 const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
 const LAST_PLANET_KEY = 'sg_last_planet';
 const LAST_FACTION_KEY = 'sg_last_faction';
-const GUIDED_FLOW_KEY = 'sg_guided_flow_enabled';
+const SIMPLIFIED_VIEW_KEY = 'sg_simplified_view';
 
 // crypto.randomUUID() only exists in "secure contexts" — HTTPS, or the
 // `localhost` origin specifically. Testing from a second device by hitting
@@ -29,17 +29,22 @@ function generateId() {
   });
 }
 
-// Whether "+1 FOUND" walks through the pick-item/pick-amount popup loop, or
-// just marks the POI found and leaves tallying to the item tiles/rows —
-// same toggle applies on mobile and desktop. Defaults on; a saved value
-// (including an explicitly-set "false") always wins, same pattern as
-// getServerUrl()'s default-vs-saved distinction.
-export function getGuidedFlowEnabled() {
-  const raw = localStorage.getItem(GUIDED_FLOW_KEY);
-  return raw === null ? true : raw === 'true';
+// Whether the Tally page shows tap-to-open tiles + the guided pick-item/
+// pick-amount popup loop on "+1 FOUND" (on), or classic always-visible
+// inline rows with a plain "+1 FOUND" and manual tallying (off) — one
+// switch for both, visible right on the Tally page (not tucked into
+// Settings). Returns `null` when nothing's been saved yet, distinct from an
+// explicit `false` — main.js only falls back to a width-based guess in that
+// case, and doesn't persist that guess, so it isn't "sticky" until the user
+// actually flips the toggle themselves. No auto-following window size after
+// that (deliberate — a visible on-page toggle that silently gets overridden
+// by a resize would undermine the point of giving direct control).
+export function getSimplifiedView() {
+  const raw = localStorage.getItem(SIMPLIFIED_VIEW_KEY);
+  return raw === null ? null : raw === 'true';
 }
-export function setGuidedFlowEnabled(enabled) {
-  localStorage.setItem(GUIDED_FLOW_KEY, enabled ? 'true' : 'false');
+export function setSimplifiedView(enabled) {
+  localStorage.setItem(SIMPLIFIED_VIEW_KEY, enabled ? 'true' : 'false');
 }
 
 export function getLastDifficulty() {
@@ -196,6 +201,16 @@ export function completeMission(config) {
   const fresh = blankMission(config);
   saveCurrentMission(fresh);
   return { completed, fresh };
+}
+
+// Throws away the in-progress mission instead of saving it to history —
+// for a tally that's garbage (misclicks, wrong mission entirely) where the
+// user would rather start clean than have it counted. Unlike
+// completeMission(), nothing gets pushed to history/synced to the server.
+export function discardCurrentMission(config) {
+  const fresh = blankMission(config);
+  saveCurrentMission(fresh);
+  return fresh;
 }
 
 export function markSynced(missionId) {

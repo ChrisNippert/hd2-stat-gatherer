@@ -24,7 +24,7 @@
   --chart-cat-4: #c98500;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
   margin: 0;
@@ -34,6 +34,15 @@ html, body {
   font-family: 'Oswald', sans-serif;
   font-size: 17px;
   min-height: 100%;
+}
+
+html { scroll-behavior: smooth; }
+
+/* Every open/close animation added below is opt-out here, not opt-in per
+   rule — respects the OS-level "reduce motion" preference instead of
+   assuming everyone wants the movement. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
 
 body {
@@ -87,7 +96,7 @@ h1, h2, h3, h4 {
 .brand-text h1 { font-size: 32px; line-height: 1; }
 
 .brand-sub {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-dim);
   letter-spacing: 0.25em;
 }
@@ -110,13 +119,13 @@ h1, h2, h3, h4 {
 }
 
 .client-badge .label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-dim);
   letter-spacing: 0.15em;
 }
 
 .client-badge span#client-id-display {
-  font-size: 15px;
+  font-size: 16px;
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -124,7 +133,7 @@ h1, h2, h3, h4 {
 }
 
 .sync-status {
-  font-size: 13px;
+  font-size: 15px;
   letter-spacing: 0.1em;
   padding: 8px 12px;
   border: 1px solid var(--border-color);
@@ -151,7 +160,7 @@ h1, h2, h3, h4 {
   padding: 12px 20px;
   min-height: var(--tap);
   font-family: 'Oswald', sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -165,7 +174,7 @@ h1, h2, h3, h4 {
 .btn {
   font-family: 'Oswald', sans-serif;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: var(--bg-panel-alt);
@@ -176,10 +185,11 @@ h1, h2, h3, h4 {
   cursor: pointer;
   touch-action: manipulation;
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.08s ease;
 }
 
 .btn:hover { background: #23281a; border-color: var(--se-yellow-dim); }
+.btn:active { transform: scale(0.96); }
 
 .btn-icon {
   background: transparent;
@@ -225,7 +235,7 @@ h1, h2, h3, h4 {
    pickup) instead of a plain "−", so the stack-based undo isn't a mystery —
    needs to grow wider than the fixed tap-target square for 3-4 digit denoms
    like Requisition's 1000. */
-.btn-count.minus-labeled { width: auto; padding: 0 10px; font-size: 14px; font-weight: 600; }
+.btn-count.minus-labeled { width: auto; padding: 0 10px; font-size: 16px; font-weight: 600; }
 
 /* ---------- Layout ---------- */
 main {
@@ -236,6 +246,42 @@ main {
   flex-direction: column;
   gap: 22px;
 }
+
+/* Sticks to the top of the viewport once scrolled past its normal position,
+   so logging a find never requires scrolling back up through the mission
+   meta panel or down past other POI cards to reach the right one's own
+   "+1 FOUND" button — one tap from wherever you're scrolled to. */
+.quick-add-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  margin: -22px -22px 0;
+  background: var(--bg-panel);
+  border-bottom: 2px solid var(--se-yellow-dim);
+}
+
+.quick-add-btn {
+  flex: 1;
+  background: #1f2a12;
+  border: 1px solid var(--se-yellow-dim);
+  color: var(--text-light);
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 14px 6px;
+  min-height: var(--tap);
+  cursor: pointer;
+  touch-action: manipulation;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: background 0.15s, color 0.15s, transform 0.08s ease;
+}
+
+.quick-add-btn:active { background: var(--se-yellow-dim); color: #14150c; transform: scale(0.96); }
 
 .panel {
   background: var(--bg-panel);
@@ -260,6 +306,26 @@ main {
   padding-bottom: 10px;
 }
 
+/* Puts the Simplified View toggle right next to the POI panel's own title
+   instead of the panel-title's default full-width underline — the wrapper
+   takes over that border so it spans both the title and the toggle. */
+.poi-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 10px;
+}
+
+.poi-panel-header .panel-title {
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 /* ---------- Mission panel ---------- */
 .mission-panel {
   display: flex;
@@ -269,8 +335,48 @@ main {
   flex-wrap: wrap;
 }
 
+/* Above this width, the Tally page splits into a sidebar (mission meta +
+   actions) and a wider main column (POI cards) instead of stacking
+   everything full-width. Two things this fixes at once: the mission
+   controls stop eating a full-width row above the "main UI" (the POI
+   cards, which is what's actually being used live during a mission), and
+   the POI cards get a meaningfully wider container to work with — their
+   item names were wrapping onto two lines in the inline-row layout because
+   3 cards had to share a comparatively narrow 1150px total width. Below
+   this width there isn't room for a usable sidebar (a ~300px column plus a
+   readable POI area needs real estate a phone/small-tablet doesn't have),
+   so it stays the original single-column stack there. Applies purely by
+   viewport width — independent of the Simplified View toggle, since a wide
+   window benefits from the extra room regardless of which layout mode
+   that's set to. */
+@media (min-width: 960px) {
+  #tally-page {
+    max-width: 1700px;
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) 1fr;
+    align-items: start;
+  }
+
+  #tally-page > .quick-add-bar { grid-column: 1 / -1; }
+  #tally-page > .mission-panel { grid-column: 1; }
+  #tally-page > #poi-panel { grid-column: 2; }
+
+  #tally-page > .mission-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #tally-page > .mission-panel .mission-meta-grid,
+  #tally-page > .mission-panel .mission-actions {
+    flex-direction: column;
+  }
+  #tally-page > .mission-panel .squad-select,
+  #tally-page > .mission-panel .btn {
+    width: 100%;
+  }
+}
+
 .timer-label {
-  font-size: 13px;
+  font-size: 15px;
   letter-spacing: 0.2em;
   color: var(--text-dim);
 }
@@ -288,7 +394,7 @@ main {
   padding: 10px 12px;
   min-height: var(--tap);
   font-family: 'Oswald', sans-serif;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .retag-arrow { color: var(--text-dim); align-self: center; font-size: 18px; }
@@ -323,7 +429,7 @@ main {
 }
 
 .poi-name { font-family: 'Staatliches', sans-serif; font-size: 22px; color: var(--se-yellow); }
-.poi-slots { font-size: 13px; color: var(--text-dim); letter-spacing: 0.1em; }
+.poi-slots { font-size: 15px; color: var(--text-dim); letter-spacing: 0.1em; }
 
 .poi-count-row {
   display: flex;
@@ -339,7 +445,7 @@ main {
   text-align: center;
 }
 
-.poi-count-row .plus { flex: 1; width: auto; font-size: 15px; }
+.poi-count-row .plus { flex: 1; width: auto; font-size: 16px; }
 
 /* Tap-to-tally tiles (mobile default) — one per item type on a POI card.
    Tapping opens #item-popup (below) rather than exposing +/- controls
@@ -351,8 +457,8 @@ main {
    step for no benefit there. */
 .poi-items {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
   margin-bottom: 14px;
 }
 
@@ -367,7 +473,7 @@ main {
   grid-template-columns: 36px 1fr auto;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size: 17px;
   padding-bottom: 12px;
   margin-bottom: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -388,35 +494,49 @@ main {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   position: relative;
   background: var(--bg-panel-alt);
   border: 1px solid var(--border-color);
-  padding: 12px 6px;
-  min-height: 72px;
+  padding: 16px 8px;
+  min-height: 100px;
   cursor: pointer;
   touch-action: manipulation;
   font-family: 'Oswald', sans-serif;
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.08s ease;
 }
 
-.item-tile:active { background: var(--bg-input); border-color: var(--se-yellow-dim); }
+.item-tile:active { background: var(--bg-input); border-color: var(--se-yellow-dim); transform: scale(0.97); }
 
-.item-tile-name { font-size: 12px; color: var(--text-light); text-align: center; line-height: 1.25; }
+/* Two fixed columns (not auto-fill) so tile size stays predictable and
+   generous across the whole mobile range instead of packing in more,
+   smaller tiles as the card gets wider — and icons/text get their own
+   larger sizing here since 6 options in a grid need to read at a glance,
+   unlike the same icon used inline elsewhere (item rows, popup headers). */
+.item-tile .item-icon,
+.item-tile img.item-icon {
+  height: 44px;
+  width: 44px;
+  max-width: 44px;
+}
+
+.item-tile .item-icon { font-size: 30px; }
+
+.item-tile-name { font-size: 16px; color: var(--text-light); text-align: center; line-height: 1.3; }
 
 .item-tile-count {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 6px;
+  right: 6px;
   background: var(--se-yellow);
   color: #14150c;
   font-weight: 700;
-  font-size: 11px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
+  font-size: 14px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -428,7 +548,7 @@ main {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 /* One joined pill instead of N separate boxed buttons — reads as a single
@@ -444,7 +564,7 @@ main {
   min-width: 40px;
   height: var(--tap);
   padding: 0 10px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   background: transparent;
   border: none;
@@ -452,11 +572,12 @@ main {
   color: var(--text-dim);
   clip-path: none;
   touch-action: manipulation;
+  transition: background 0.15s, color 0.15s, transform 0.08s ease;
 }
 
 .btn-denom-pick:last-child { border-right: none; }
 .btn-denom-pick:hover { background: rgba(255, 227, 77, 0.08); color: var(--text-light); }
-.btn-denom-pick:active { background: var(--se-yellow-dim); color: #14150c; }
+.btn-denom-pick:active { background: var(--se-yellow-dim); color: #14150c; transform: scale(0.95); }
 
 .item-icon { font-size: 20px; text-align: center; }
 img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain; }
@@ -473,17 +594,30 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .item-count { min-width: 28px; text-align: center; font-weight: 600; font-size: 18px; }
 
 /* ---------- Item popup (tap a Tally-page item tile to tally a pickup) ---------- */
+/* Starts slightly scaled-down and transparent; JS adds .is-open a couple of
+   frames after removing .hidden (display:none can't itself be transitioned —
+   see showAnimated()/hideAnimated() in main.js) so this actually animates in
+   rather than snapping into place. */
 .item-popup {
   position: fixed;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -46%) scale(0.96);
+  opacity: 0;
   width: min(360px, 92vw);
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   padding: 20px;
   z-index: 150;
   clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.item-popup.is-open {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .item-popup-header {
@@ -495,7 +629,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 
 .item-popup-heading { flex: 1; min-width: 0; }
 .item-popup-name { font-family: 'Staatliches', sans-serif; font-size: 22px; color: var(--se-yellow); }
-.item-popup-poi { font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; }
+.item-popup-poi { font-size: 14px; color: var(--text-dim); letter-spacing: 0.08em; }
 
 .item-popup-controls {
   display: flex;
@@ -520,7 +654,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 }
 
 .poi-progress-label {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-dim);
   letter-spacing: 0.08em;
 }
@@ -535,7 +669,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   padding: 12px 20px;
   min-height: var(--tap);
   font-family: 'Oswald', sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
@@ -557,7 +691,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 }
 
 .stat-value { font-family: 'Staatliches', sans-serif; font-size: 30px; color: var(--se-yellow); }
-.stat-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.1em; }
+.stat-label { font-size: 14px; color: var(--text-dim); letter-spacing: 0.1em; }
 
 .stats-content h3 {
   font-size: 18px;
@@ -566,7 +700,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 }
 
 .stats-content h4 {
-  font-size: 16px;
+  font-size: 17px;
   margin: 12px 0 6px;
   color: var(--text-light);
 }
@@ -574,7 +708,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .stats-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 15px;
+  font-size: 16px;
   margin-bottom: 8px;
 }
 
@@ -588,13 +722,13 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   color: var(--text-dim);
   font-weight: 500;
   text-transform: uppercase;
-  font-size: 13px;
+  font-size: 15px;
   letter-spacing: 0.05em;
 }
 
 .drop-table-wrap { margin-bottom: 12px; }
 
-.empty-note { color: var(--text-dim); font-size: 15px; font-style: italic; }
+.empty-note { color: var(--text-dim); font-size: 16px; font-style: italic; }
 
 /* ---------- Charts ---------- */
 .chart {
@@ -610,13 +744,13 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   gap: 10px;
 }
 
-.chart-row-icon { width: 24px; flex: none; text-align: center; font-size: 16px; }
+.chart-row-icon { width: 24px; flex: none; text-align: center; font-size: 17px; }
 .chart-row-icon img { width: 22px; height: 22px; object-fit: contain; }
 
 .chart-row-label {
   flex: 0 1 130px;
   min-width: 60px;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-light);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -643,7 +777,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   min-width: 54px;
   text-align: right;
   font-family: 'Staatliches', sans-serif;
-  font-size: 16px;
+  font-size: 17px;
   color: var(--se-yellow);
 }
 
@@ -652,7 +786,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .heatmap-cell-label {
   display: flex;
   align-items: center;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-dim);
   padding: 4px;
   overflow: hidden;
@@ -671,7 +805,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   align-items: center;
   justify-content: center;
   min-height: 40px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-light);
   border: 1px solid var(--border-color);
@@ -696,12 +830,12 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   margin-bottom: 8px;
 }
 
-.log-card-date { font-size: 13px; color: var(--text-dim); }
+.log-card-date { font-size: 15px; color: var(--text-dim); }
 
 .log-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .log-tag {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 3px 8px;
@@ -710,7 +844,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   background: var(--bg-input);
 }
 
-.log-card-summary { font-size: 14px; color: var(--text-light); margin-bottom: 10px; }
+.log-card-summary { font-size: 16px; color: var(--text-light); margin-bottom: 10px; }
 
 .log-card-actions { display: flex; gap: 10px; }
 
@@ -725,11 +859,22 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 .log-edit-items { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-left: 8px; }
 
 /* ---------- Settings panel ---------- */
+/* Shared by #settings-overlay and #item-popup-overlay — same fade-in
+   treatment for both (see the .item-popup comment above for why .is-open
+   is a separate class from .hidden). */
 .settings-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.settings-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .settings-panel {
@@ -742,7 +887,11 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   border-left: 2px solid var(--se-yellow-dim);
   z-index: 101;
   overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
 }
+
+.settings-panel.is-open { transform: translateX(0); }
 
 .settings-inner { padding: 22px; position: relative; }
 
@@ -756,7 +905,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 
 .settings-group h3 { font-size: 19px; margin-bottom: 8px; }
 
-.hint { font-size: 14px; color: var(--text-dim); margin: 0 0 12px; }
+.hint { font-size: 16px; color: var(--text-dim); margin: 0 0 12px; }
 
 .btn-link {
   background: none;
@@ -823,7 +972,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
 
 .toggle-row input:focus-visible ~ .toggle-switch { outline: 2px solid var(--se-yellow); outline-offset: 2px; }
 
-.toggle-label { font-size: 15px; color: var(--text-light); }
+.toggle-label { font-size: 16px; color: var(--text-light); }
 
 .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 
@@ -835,7 +984,7 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   padding: 12px 14px;
   min-height: var(--tap);
   font-family: 'Oswald', sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   min-width: 0;
 }
 
@@ -848,15 +997,19 @@ img.item-icon { height: 32px; width: 32px; max-width: 32px; object-fit: contain;
   position: fixed;
   bottom: 20px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(12px);
+  opacity: 0;
   background: var(--bg-panel-alt);
   border: 1px solid var(--se-yellow-dim);
   color: var(--text-light);
   padding: 12px 20px;
   z-index: 200;
-  font-size: 15px;
+  font-size: 16px;
   letter-spacing: 0.03em;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
+
+.toast.is-open { transform: translateX(-50%) translateY(0); opacity: 1; }
 
 .toast.error { border-color: var(--danger); color: var(--danger); }
 .toast.success { border-color: var(--success); color: var(--success); }
