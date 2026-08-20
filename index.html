@@ -6,7 +6,7 @@
 <title>STAT GATHERER // FIELD DATA TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260824m" />
+<link rel="stylesheet" href="css/style.css?v=20260824r" />
 </head>
 <body>
 <div class="scanlines" aria-hidden="true"></div>
@@ -169,51 +169,6 @@
     </div>
 
     <div class="settings-group">
-      <h3>Server</h3>
-      <p class="hint">Defaults to the shared public server for crowd-sourced Global Stats. Point it at your own server instead, or clear it and save to run fully offline.</p>
-      <div class="row">
-        <input type="text" id="server-url-input" placeholder="https://your-server:4000" spellcheck="false" />
-        <button id="apply-server-url" class="btn">Save</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Re-tag Missions</h3>
-      <p class="hint">Bulk-relabel the squad mode on already-recorded missions — e.g. tag old unlabeled data as Solo. Re-tagged missions get pushed to the server again on the next sync.</p>
-      <div class="row">
-        <select id="retag-from" class="squad-select">
-          <option value="unknown" selected>Unlabeled (older data)</option>
-          <option value="all">All Missions</option>
-          <option value="solo">Solo (No Warp Pack)</option>
-          <option value="solo_warp">Solo + Warp Pack</option>
-          <option value="multiplayer">Multiplayer (2+)</option>
-        </select>
-        <span class="retag-arrow">→</span>
-        <select id="retag-to" class="squad-select">
-          <option value="solo" selected>Solo (No Warp Pack)</option>
-          <option value="solo_warp">Solo + Warp Pack</option>
-          <option value="multiplayer">Multiplayer (2+)</option>
-        </select>
-      </div>
-      <div class="row">
-        <button id="retag-apply" class="btn">Apply</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <h3>Backfill Existing Missions</h3>
-      <p class="hint">Fill in Difficulty / Faction / Planet on missions recorded before you started tracking them. Only touches missions currently missing that field — safe to run more than once, won't overwrite anything already labeled.</p>
-      <div class="row">
-        <select id="backfill-difficulty" class="squad-select"><option value="">— Skip Difficulty —</option></select>
-        <select id="backfill-faction" class="squad-select"><option value="">— Skip Faction —</option></select>
-        <select id="backfill-planet" class="squad-select"><option value="">— Skip Planet —</option></select>
-      </div>
-      <div class="row">
-        <button id="backfill-apply" class="btn">Apply to Missions Missing This Data</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
       <h3>Quick Guide</h3>
       <p class="hint">Replay the first-run walkthrough if you want a refresher on the live tally flow.</p>
       <div class="row">
@@ -240,10 +195,12 @@
 <aside id="guide-callout" class="guide-callout hidden"></aside>
 <div id="submit-popup-overlay" class="settings-overlay hidden"></div>
 <div id="submit-popup" class="submit-popup hidden"></div>
+<div id="clear-popup-overlay" class="settings-overlay hidden"></div>
+<div id="clear-popup" class="submit-popup hidden"></div>
 <div id="item-popup-overlay" class="settings-overlay hidden"></div>
 <div id="item-popup" class="item-popup hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260824m"></script>
+<script type="module" src="js/main.js?v=20260824r"></script>
 </body>
 </html>

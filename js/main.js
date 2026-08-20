@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824m';
-import * as state from './state.js?v=20260824m';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824m';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824m';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824r';
+import * as state from './state.js?v=20260824r';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois } from './stats.js?v=20260824r';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote, submitDenomCount, fetchDenominations } from './api.js?v=20260824r';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -142,7 +142,7 @@ function buildQuickGuideSteps() {
     {
       target: () => el('client-badge'),
       title: 'Diver Identity',
-      body: 'This Diver ID is the profile your missions and synced stats belong to. Open Settings here if you ever want to move to another diver or server.',
+      body: 'This Diver ID is the profile your missions and synced stats belong to. Open Settings here if you ever want to switch to another diver.',
       highlightPad: { top: 4, right: 4, bottom: 4, left: 0 },
     },
     {
@@ -176,8 +176,18 @@ function buildQuickGuideSteps() {
     },
     {
       target: () => document.querySelector('button[data-page="stats"]'),
-      title: 'Stats and Mission Log',
-      body: 'Stats rolls up your saved missions into drop-rate numbers. Missions lets you edit or delete old runs later.',
+      title: 'Stats',
+      body: 'Stats rolls your saved missions into drop-rate numbers, charts, and pooled frequency data.',
+    },
+    {
+      target: () => document.querySelector('button[data-page="log"]'),
+      title: 'Mission Log',
+      body: 'Missions lets you edit or delete old runs later, including whether a run really cleared every Minor Place.',
+    },
+    {
+      target: currentGuideMissionControlTarget,
+      title: 'Final Submission Prompt',
+      body: 'When you save a mission, we ask one last question about whether you think you picked up everything on the map. That keeps Minor Place frequency stats from being skewed by incomplete clears.',
     },
   ].filter((step) => isVisible(step.target()));
 }
@@ -337,7 +347,6 @@ window.addEventListener('scroll', positionQuickGuide, true);
 function renderClientBadge() {
   el('client-id-display').textContent = clientId.slice(0, 8);
   el('client-id-input').value = clientId;
-  el('server-url-input').value = serverUrl;
 }
 
 function setSyncStatus(text, cls = '') {
@@ -410,12 +419,6 @@ function renderStatsFilterSelects() {
   populateSelectOptions(el('stats-difficulty-filter'), config.difficulties, { allLabel: 'All Difficulties', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('stats-faction-filter'), config.factions, { allLabel: 'All Factions', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('stats-planet-filter'), config.planets, { allLabel: 'All Planets', unknownLabel: 'Unlabeled' });
-}
-
-function renderBackfillSelects() {
-  populateSelectOptions(el('backfill-difficulty'), config.difficulties, { skipLabel: '— Skip Difficulty —' });
-  populateSelectOptions(el('backfill-faction'), config.factions, { skipLabel: '— Skip Faction —' });
-  populateSelectOptions(el('backfill-planet'), config.planets, { skipLabel: '— Skip Planet —' });
 }
 
 on('difficulty-select', 'change', (e) => {
@@ -940,6 +943,34 @@ function closeSubmitPopup() {
   hideAnimated(el('submit-popup-overlay'));
 }
 
+function clearPromptHtml() {
+  return `
+    <div class="item-popup-header">
+      <div class="item-popup-heading">
+        <div class="item-popup-name">Discard Current Mission?</div>
+        <div class="item-popup-poi">This wipes the in-progress tally only.</div>
+      </div>
+      <button class="btn btn-icon close-btn" data-action="clear-cancel" aria-label="Close">✕</button>
+    </div>
+    <p>If this run is garbage, clear it here and start fresh. Nothing from the current mission will be saved or synced.</p>
+    <div class="submit-popup-actions">
+      <button class="btn btn-danger" type="button" data-action="clear-confirm">Yes — discard this mission</button>
+      <button class="btn" type="button" data-action="clear-cancel">Keep working on it</button>
+    </div>
+  `;
+}
+
+function openClearPopup() {
+  el('clear-popup').innerHTML = clearPromptHtml();
+  showAnimated(el('clear-popup-overlay'));
+  showAnimated(el('clear-popup'));
+}
+
+function closeClearPopup() {
+  hideAnimated(el('clear-popup'));
+  hideAnimated(el('clear-popup-overlay'));
+}
+
 async function finalizeMissionSubmission(allMinorPlacesCollected) {
   currentMission.allMinorPlacesCollected = !!allMinorPlacesCollected;
   persistCurrentMission();
@@ -972,8 +1003,8 @@ on('submit-popup', 'click', async (e) => {
 });
 
 function clearCurrentMission() {
-  if (!confirm('Discard the current in-progress mission without saving it? This cannot be undone.')) return;
   currentMission = state.discardCurrentMission(config);
+  closeClearPopup();
   closeSubmitPopup();
   closeItemPopup();
   closeMissionPanel();
@@ -983,8 +1014,15 @@ function clearCurrentMission() {
   toast('Mission cleared — nothing was saved.', 'success');
 }
 
-on('clear-mission-btn', 'click', clearCurrentMission);
-on('poi-clear-mission-btn', 'click', clearCurrentMission);
+on('clear-mission-btn', 'click', openClearPopup);
+on('poi-clear-mission-btn', 'click', openClearPopup);
+on('clear-popup-overlay', 'click', closeClearPopup);
+on('clear-popup', 'click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'clear-confirm') clearCurrentMission();
+  if (btn.dataset.action === 'clear-cancel') closeClearPopup();
+});
 
 async function trySyncMission(mission) {
   if (!serverUrl) return;
@@ -1075,12 +1113,12 @@ function barChartHtml(rows) {
   const maxValue = Math.max(...rows.map((r) => r.value), 0.0001);
   return `<div class="chart">
     ${rows.map((r) => {
-      const pct = Math.max(2, (r.value / maxValue) * 100);
+      const pct = r.value <= 0 ? 0 : Math.max(2, (r.value / maxValue) * 100);
       return `
         <div class="chart-row" title="${esc(r.title)}">
           <span class="chart-row-icon">${r.iconHtml || ''}</span>
           <span class="chart-row-label">${esc(r.label)}</span>
-          <div class="chart-track"><div class="chart-bar" style="width:${pct}%"></div></div>
+          <div class="chart-track"><div class="chart-bar${r.value <= 0 ? ' is-zero' : ''}" style="width:${pct}%"></div></div>
           <span class="chart-row-value">${esc(r.displayValue)}</span>
         </div>
       `;
@@ -1671,24 +1709,6 @@ on('mission-config-btn', 'click', openMissionPanel);
 on('close-mission-panel', 'click', closeMissionPanel);
 on('mission-panel-overlay', 'click', closeMissionPanel);
 
-on('backfill-apply', 'click', async () => {
-  const difficulty = el('backfill-difficulty').value;
-  const faction = el('backfill-faction').value;
-  const planet = el('backfill-planet').value;
-  if (!difficulty && !faction && !planet) {
-    toast('Pick at least one field to backfill.', '');
-    return;
-  }
-  const count = state.backfillMissionMetadata({ difficulty, faction, planet });
-  if (count === 0) {
-    toast('No missions needed backfilling.', '');
-    return;
-  }
-  renderStats();
-  toast(`Backfilled ${count} mission(s).`, 'success');
-  await syncPendingMissions();
-});
-
 on('apply-client-id', 'click', async () => {
   const newId = el('client-id-input').value.trim();
   if (!newId || newId === clientId) return;
@@ -1707,28 +1727,6 @@ on('apply-client-id', 'click', async () => {
     toast(`Diver ID set to ${clientId.slice(0, 8)}.`, 'success');
   }
   renderStats();
-});
-
-on('apply-server-url', 'click', async () => {
-  serverUrl = el('server-url-input').value.trim().replace(/\/+$/, '');
-  state.setServerUrl(serverUrl);
-  globalMissions = null;
-  await syncPendingMissions();
-  renderStats();
-  toast('Server URL saved.', 'success');
-});
-
-on('retag-apply', 'click', async () => {
-  const fromMode = el('retag-from').value;
-  const toMode = el('retag-to').value;
-  const count = state.retagMissions(fromMode, toMode);
-  if (count === 0) {
-    toast('No matching missions to re-tag.', '');
-    return;
-  }
-  renderStats();
-  toast(`Re-tagged ${count} mission(s).`, 'success');
-  await syncPendingMissions();
 });
 
 /* ---------------- Import / Export ---------------- */
@@ -1782,7 +1780,6 @@ on('import-json-input', 'change', async (e) => {
     renderMissionMetaSelects();
     renderStatsFilterSelects();
     renderGlobalLogFilterSelects();
-    renderBackfillSelects();
     if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
     toast('Import complete.', 'success');
   } catch {
@@ -1815,7 +1812,6 @@ function init() {
   safe(renderMissionMetaSelects, 'renderMissionMetaSelects');
   safe(renderStatsFilterSelects, 'renderStatsFilterSelects');
   safe(renderGlobalLogFilterSelects, 'renderGlobalLogFilterSelects');
-  safe(renderBackfillSelects, 'renderBackfillSelects');
   safe(renderStats, 'renderStats');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');
   safe(() => startQuickGuide(false), 'startQuickGuide');

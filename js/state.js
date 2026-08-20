@@ -120,19 +120,17 @@ export function setClientId(id) {
   localStorage.setItem(CLIENT_ID_KEY, id);
 }
 
-// Ships pointed at the public shared instance by default so a fresh install
-// is already contributing to/reading from crowd stats with no setup. A saved
-// value (including an explicitly-cleared empty string, to go offline) always
-// wins over this — distinguished by localStorage having the key at all.
+// Ships pointed at the public shared instance with no user-facing server
+// setting — the client always uses this built-in endpoint so the URL isn't
+// exposed in the UI.
 export const DEFAULT_SERVER_URL = 'https://hd2stats.chrisnippert.com';
 
 export function getServerUrl() {
-  const saved = localStorage.getItem(SERVER_URL_KEY);
-  return saved === null ? DEFAULT_SERVER_URL : saved;
+  return DEFAULT_SERVER_URL;
 }
 
 export function setServerUrl(url) {
-  localStorage.setItem(SERVER_URL_KEY, url.trim().replace(/\/+$/, ''));
+  localStorage.setItem(SERVER_URL_KEY, DEFAULT_SERVER_URL);
 }
 
 function blankMission(config) {
@@ -230,45 +228,6 @@ export function markSynced(missionId) {
     history[idx].synced = true;
     saveHistory(history);
   }
-}
-
-// Bulk-relabels already-recorded missions, e.g. to retroactively tag
-// pre-squad-mode-tracking history as 'unknown' -> 'solo'. Marks touched
-// missions unsynced so the next sync push carries the new tag to the server.
-export function retagMissions(fromMode, toMode) {
-  const history = getHistory();
-  let count = 0;
-  history.forEach((m) => {
-    const current = m.squadMode || 'unknown';
-    if (fromMode === 'all' || current === fromMode) {
-      m.squadMode = toMode;
-      m.synced = false;
-      count += 1;
-    }
-  });
-  saveHistory(history);
-  return count;
-}
-
-// Bulk-fills difficulty/planet/faction on missions that don't have them set
-// yet — e.g. backfilling old data recorded before these fields existed.
-// Only touches missions currently missing a given field, so it's safe to
-// run repeatedly without overwriting anything already labeled.
-export function backfillMissionMetadata({ difficulty, planet, faction } = {}) {
-  const history = getHistory();
-  let count = 0;
-  history.forEach((m) => {
-    let changed = false;
-    if (difficulty && !m.difficulty) { m.difficulty = difficulty; changed = true; }
-    if (planet && !m.planet) { m.planet = planet; changed = true; }
-    if (faction && !m.faction) { m.faction = faction; changed = true; }
-    if (changed) {
-      m.synced = false;
-      count += 1;
-    }
-  });
-  if (count > 0) saveHistory(history);
-  return count;
 }
 
 export function replaceHistory(missions) {
