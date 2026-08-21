@@ -91,21 +91,11 @@ body {
   background-size: cover, 100% auto, auto, auto;
   background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
   background-attachment: fixed, fixed, fixed, fixed;
-  animation: station-81-drift 60s ease-in-out infinite alternate;
 }
 
 @media (max-aspect-ratio: 1567/711) {
   body {
     background-size: cover, auto 100%, auto, auto;
-  }
-}
-
-@keyframes station-81-drift {
-  0% {
-    background-position: center, right bottom, 20% 0%, 80% 100%;
-  }
-  100% {
-    background-position: center, calc(100% + 22px) calc(100% + 8px), 20% 0%, 80% 100%;
   }
 }
 
