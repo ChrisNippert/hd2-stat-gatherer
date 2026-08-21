@@ -43,6 +43,7 @@ const DEFAULT_DIFFICULTIES = [
   { id: 'suicide_mission', name: 'Suicide Mission (7)' },
   { id: 'impossible', name: 'Impossible (8)' },
   { id: 'helldive', name: 'Helldive (9)' },
+  { id: 'super_helldive', name: 'Super Helldive (10)' },
 ];
 
 const DEFAULT_FACTIONS = [
