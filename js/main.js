@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820aq';
-import * as state from './state.js?v=20260820aq';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260820aq';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260820aq';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820ar';
+import * as state from './state.js?v=20260820ar';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260820ar';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260820ar';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -1357,6 +1357,31 @@ async function trySyncMission(mission) {
   }
 }
 
+function sortMissionsChronologically(missions) {
+  return missions.slice().sort((a, b) => (
+    Number(a.endedAt || a.startedAt || 0) - Number(b.endedAt || b.startedAt || 0)
+  ));
+}
+
+function mergeRemoteHistory(remoteHistory) {
+  const mergedById = new Map(
+    remoteHistory.map((m) => [m.id, { ...m, synced: true }]),
+  );
+  state.getHistory()
+    .filter((m) => !m.synced)
+    .forEach((m) => mergedById.set(m.id, m));
+  const merged = sortMissionsChronologically([...mergedById.values()]);
+  state.replaceHistory(merged);
+  renderLogPage();
+  renderStats();
+}
+
+async function pullDiverHistoryFromServer() {
+  const remoteHistory = await fetchMissions(serverUrl, clientId);
+  mergeRemoteHistory(remoteHistory);
+  return remoteHistory;
+}
+
 async function syncPendingMissions() {
   if (!serverUrl) {
     setSyncStatus('OFFLINE', 'error');
@@ -1376,6 +1401,11 @@ async function syncPendingMissions() {
     } catch {
       /* leave for next attempt */
     }
+  }
+  try {
+    await pullDiverHistoryFromServer();
+  } catch (err) {
+    console.error('Stat Gatherer: diver history pull failed', err);
   }
   // Global Stats' mission list (globalMissions) previously only refreshed
   // when the GLOBAL STATS tab button was clicked — a delete/edit by another
@@ -2036,8 +2066,7 @@ on('apply-client-id', 'click', async () => {
   renderClientBadge();
   if (serverUrl) {
     try {
-      const remoteHistory = await fetchMissions(serverUrl, clientId);
-      state.replaceHistory(remoteHistory.map((m) => ({ ...m, synced: true })));
+      const remoteHistory = await pullDiverHistoryFromServer();
       toast(`Logged in as ${clientId.slice(0, 8)} — pulled ${remoteHistory.length} mission(s) from server.`, 'success');
     } catch {
       toast('Diver ID set, but could not reach server to pull history.', 'error');
