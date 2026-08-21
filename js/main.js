@@ -1,7 +1,7 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260824x';
-import * as state from './state.js?v=20260824x';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260824x';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260824x';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820an';
+import * as state from './state.js?v=20260820an';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260820an';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260820an';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -61,15 +61,28 @@ function safe(fn, label) {
 // restoring display:none.
 function showAnimated(elm) {
   if (!elm) return;
+  clearTimeout(elm._hideAnimatedTimer);
+  if (elm._hideAnimatedFinish) {
+    elm.removeEventListener('transitionend', elm._hideAnimatedFinish);
+    elm._hideAnimatedFinish = null;
+  }
   elm.classList.remove('hidden');
   requestAnimationFrame(() => requestAnimationFrame(() => elm.classList.add('is-open')));
 }
 function hideAnimated(elm) {
   if (!elm) return;
+  clearTimeout(elm._hideAnimatedTimer);
+  if (elm._hideAnimatedFinish) elm.removeEventListener('transitionend', elm._hideAnimatedFinish);
   elm.classList.remove('is-open');
-  const finish = () => elm.classList.add('hidden');
+  const finish = () => {
+    if (elm._hideAnimatedFinish !== finish) return;
+    elm.classList.add('hidden');
+    elm._hideAnimatedFinish = null;
+    clearTimeout(elm._hideAnimatedTimer);
+  };
+  elm._hideAnimatedFinish = finish;
   elm.addEventListener('transitionend', finish, { once: true });
-  setTimeout(finish, 250);
+  elm._hideAnimatedTimer = setTimeout(finish, 250);
 }
 
 function esc(str) {
@@ -133,13 +146,57 @@ function guidePoiTarget(poiId) {
   return document.querySelector(`#poi-grid .poi-card[data-poi="${poiId}"]`);
 }
 
+function poiPreviewImage(poiId) {
+  const previews = {
+    two_man_bunker: {
+      src: 'assets/guide/bunker-ref-2.png',
+      alt: 'Bunker exterior example',
+    },
+    explodable_bunker: {
+      src: 'assets/guide/container-ref-2.png',
+      alt: 'Container exterior example',
+    },
+    loot_pod: {
+      src: 'assets/guide/loot-pod-ref-2.png',
+      alt: 'Loot pod exterior example',
+    },
+  };
+  return previews[poiId] || null;
+}
+
+const GUIDE_PRELOAD_SOURCES = [
+  'assets/guide/bunker-ref-1.png',
+  'assets/guide/bunker-ref-2.png',
+  'assets/guide/bunker-ref-3.png',
+  'assets/guide/container-ref-1.png',
+  'assets/guide/container-ref-2.png',
+  'assets/guide/container-ref-3.png',
+  'assets/guide/loot-pod-ref-1.png',
+  'assets/guide/loot-pod-ref-2.png',
+  'assets/guide/loot-pod-ref-3.png',
+  'assets/guide/for-democracy-hero.png',
+];
+
+function preloadImages(srcs) {
+  if (!Array.isArray(srcs) || !srcs.length) return;
+  preloadImages._seen ||= new Set();
+  srcs.forEach((src) => {
+    if (!src || preloadImages._seen.has(src)) return;
+    preloadImages._seen.add(src);
+    const img = new Image();
+    img.decoding = 'async';
+    img.loading = 'eager';
+    img.src = src;
+  });
+}
+
 function buildQuickGuideSteps() {
   return [
     {
       target: () => el('client-badge'),
       title: 'Diver Identity',
       body: 'This Diver ID is the profile your missions and synced stats belong to. Open Settings here if you ever want to switch to another diver.',
-      highlightPad: { top: 4, right: 4, bottom: 4, left: 0 },
+      highlightPad: { top: 10, right: 10, bottom: 10, left: 6 },
     },
     {
       target: () => window.innerWidth < 1300 ? el('mission-config-btn') : document.querySelector('#mission-panel .mission-meta-grid'),
@@ -240,11 +297,13 @@ function buildQuickGuideSteps() {
       target: () => document.querySelector('button[data-page="stats"]'),
       title: 'Stats',
       body: 'Stats rolls your saved missions into drop-rate numbers, charts, and pooled frequency data.',
+      suppressTargetOutline: true,
     },
     {
       target: () => document.querySelector('button[data-page="log"]'),
       title: 'Mission Log',
       body: 'Missions lets you edit or delete old runs later, including whether a run really cleared every Minor Place.',
+      suppressTargetOutline: true,
     },
     {
       target: currentGuideMissionControlTarget,
@@ -253,12 +312,14 @@ function buildQuickGuideSteps() {
     },
     {
       target: () => document.querySelector('.brand'),
-      title: 'For Democracy',
-      body: 'Trust the three POI types, count the special loot cleanly, and let Managed Democracy handle the statistics. Now get out there and spread some data-backed liberty.',
+      title: 'Ministry of Statistics',
+      body: 'Every properly tallied drop strengthens the war effort. Identify the correct POI, record its strategic yield with pride, and deliver your findings to the Ministry of Statistics for the continued prosperity of Managed Democracy.',
       imageSrc: 'assets/guide/for-democracy-hero.png',
       imageAlt: 'Helldiver standing before Super Earth High Command',
-      imageCaption: 'FOR SUPER EARTH',
+      imageCaption: 'FOR DEMOCRACY. FOR SUPER EARTH. FOR STATISTICS.',
       imageClass: 'guide-media-hero',
+      centered: true,
+      suppressHighlight: true,
     },
   ].filter((step) => isVisible(step.target()));
 }
@@ -300,19 +361,87 @@ function trackQuickGuidePosition(durationMs = 1400) {
   quickGuideTrackTimer = setInterval(tick, 80);
 }
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(n, max));
+}
+
+function rectOverlapArea(a, b) {
+  const overlapWidth = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const overlapHeight = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return overlapWidth * overlapHeight;
+}
+
+function placeGuideCallout(rect, box, margin, sideFirst) {
+  const verticalPref = rect.top < window.innerHeight * 0.45 ? 'below' : 'above';
+  const horizontalPref = rect.left + (rect.width / 2) < window.innerWidth / 2 ? 'right' : 'left';
+  const orders = sideFirst
+    ? [horizontalPref, horizontalPref === 'right' ? 'left' : 'right', verticalPref, verticalPref === 'below' ? 'above' : 'below']
+    : [verticalPref, verticalPref === 'below' ? 'above' : 'below', horizontalPref, horizontalPref === 'right' ? 'left' : 'right'];
+  const highlightRect = {
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+  };
+  const candidates = {
+    right: {
+      top: rect.top + ((rect.height - box.height) / 2),
+      left: rect.right + margin,
+    },
+    left: {
+      top: rect.top + ((rect.height - box.height) / 2),
+      left: rect.left - box.width - margin,
+    },
+    below: {
+      top: rect.bottom + margin,
+      left: rect.left + ((rect.width - box.width) / 2),
+    },
+    above: {
+      top: rect.top - box.height - margin,
+      left: rect.left + ((rect.width - box.width) / 2),
+    },
+  };
+
+  return orders
+    .map((side, index) => {
+      const raw = candidates[side];
+      const top = clamp(raw.top, margin, window.innerHeight - box.height - margin);
+      const left = clamp(raw.left, margin, window.innerWidth - box.width - margin);
+      const calloutRect = { left, top, right: left + box.width, bottom: top + box.height };
+      const overlap = rectOverlapArea(calloutRect, highlightRect);
+      const overflowPenalty = Math.abs(raw.top - top) + Math.abs(raw.left - left);
+      return { top, left, overlap, overflowPenalty, priority: index };
+    })
+    .sort((a, b) => (
+      (a.overlap - b.overlap)
+      || (a.overflowPenalty - b.overflowPenalty)
+      || (a.priority - b.priority)
+    ))[0];
+}
+
 function positionQuickGuide() {
   if (!quickGuide) return;
+  const step = quickGuide.steps[quickGuide.index];
   const target = quickGuide.target;
-  if (!isVisible(target)) return;
+  if (!step?.centered && !isVisible(target)) return;
   const callout = el('guide-callout');
   const overlay = el('guide-overlay');
   const highlight = el('guide-highlight');
   const margin = 12;
+  if (step?.centered) {
+    highlight.classList.add('hidden');
+    overlay.style.removeProperty('clip-path');
+    overlay.style.removeProperty('-webkit-clip-path');
+    const box = callout.getBoundingClientRect();
+    callout.style.top = `${Math.round(Math.max(margin, (window.innerHeight - box.height) / 2))}px`;
+    callout.style.left = `${Math.round(Math.max(margin, (window.innerWidth - box.width) / 2))}px`;
+    return;
+  }
   const rect = target.getBoundingClientRect();
-  const pad = quickGuide.steps[quickGuide.index]?.highlightPad ?? 8;
+  const pad = step?.highlightPad ?? 16;
   const highlightPad = typeof pad === 'number'
     ? { top: pad, right: pad, bottom: pad, left: pad }
-    : { top: 8, right: 8, bottom: 8, left: 8, ...pad };
+    : { top: 16, right: 16, bottom: 16, left: 16, ...pad };
   const cutoutLeft = Math.max(6, Math.round(rect.left - highlightPad.left));
   const cutoutTop = Math.max(6, Math.round(rect.top - highlightPad.top));
   const cutoutRight = Math.min(window.innerWidth - 6, Math.round(rect.right + highlightPad.right));
@@ -326,13 +455,21 @@ function positionQuickGuide() {
   overlay.style.clipPath = cutoutClip;
   overlay.style.webkitClipPath = cutoutClip;
   const box = callout.getBoundingClientRect();
-  const prefersBelow = rect.top < window.innerHeight * 0.45;
-  let top = prefersBelow ? rect.bottom + margin : rect.top - box.height - margin;
-  top = Math.max(margin, Math.min(top, window.innerHeight - box.height - margin));
-  let left = rect.left + ((rect.width - box.width) / 2);
-  left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
-  callout.style.top = `${Math.round(top)}px`;
-  callout.style.left = `${Math.round(left)}px`;
+  const placement = placeGuideCallout(
+    {
+      left: cutoutLeft,
+      top: cutoutTop,
+      right: cutoutRight,
+      bottom: cutoutBottom,
+      width: Math.max(0, cutoutRight - cutoutLeft),
+      height: Math.max(0, cutoutBottom - cutoutTop),
+    },
+    box,
+    margin,
+    Boolean(step?.gallery?.length || step?.imageSrc),
+  );
+  callout.style.top = `${Math.round(placement.top)}px`;
+  callout.style.left = `${Math.round(placement.left)}px`;
 }
 
 function renderQuickGuide() {
@@ -345,9 +482,14 @@ function renderQuickGuide() {
   }
   quickGuide.target = target;
   clearQuickGuideTarget();
-  target.classList.add('guide-focus-target');
-  target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+  if (!step.suppressHighlight && !step.suppressTargetOutline) {
+    target.classList.add('guide-focus-target');
+  }
+  if (!step.suppressHighlight) {
+    target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+  }
   const callout = el('guide-callout');
+  callout.style.visibility = 'hidden';
   callout.innerHTML = `
     <div class="guide-kicker">FIELD ORIENTATION ${quickGuide.index + 1} / ${quickGuide.steps.length}</div>
     <h3>${esc(step.title)}</h3>
@@ -356,14 +498,14 @@ function renderQuickGuide() {
       <div class="guide-gallery">
         ${step.gallery.map((item) => `
           <figure class="guide-media">
-            <img src="${esc(item.src)}" alt="${esc(item.alt || '')}" />
+            <img src="${esc(item.src)}" alt="${esc(item.alt || '')}" loading="eager" decoding="async" />
             ${item.caption ? `<figcaption>${esc(item.caption)}</figcaption>` : ''}
           </figure>
         `).join('')}
       </div>
     ` : step.imageSrc ? `
       <figure class="guide-media ${esc(step.imageClass || '')}">
-        <img src="${esc(step.imageSrc)}" alt="${esc(step.imageAlt || '')}" />
+        <img src="${esc(step.imageSrc)}" alt="${esc(step.imageAlt || '')}" loading="eager" decoding="async" />
         ${step.imageCaption ? `<figcaption>${esc(step.imageCaption)}</figcaption>` : ''}
       </figure>
     ` : ''}
@@ -377,6 +519,7 @@ function renderQuickGuide() {
   showAnimated(callout);
   requestAnimationFrame(() => requestAnimationFrame(() => {
     positionQuickGuide();
+    callout.style.visibility = '';
     trackQuickGuidePosition();
   }));
 }
@@ -385,6 +528,7 @@ function startQuickGuide(force = false) {
   if (quickGuide) return;
   if (!force && state.hasSeenQuickGuide()) return;
   showPage('tally');
+  preloadImages(GUIDE_PRELOAD_SOURCES);
   const steps = buildQuickGuideSteps();
   if (!steps.length) return;
   quickGuide = { index: 0, steps, target: null };
@@ -436,9 +580,10 @@ function renderClientBadge() {
 }
 
 function setSyncStatus(text, cls = '') {
-  const s = el('sync-status');
-  s.textContent = text;
-  s.className = `sync-status ${cls}`;
+  const s = el('terminal-badge');
+  if (!s) return;
+  s.textContent = `MINISTRY TERMINAL // ${text}`;
+  s.className = `terminal-badge ${cls}`.trim();
   refreshQuickGuideIfOpen();
 }
 
@@ -672,11 +817,85 @@ function denomStackForCurrentMission(poiId, itemId) {
   return currentMission.denomPickHistory[poiId][itemId];
 }
 
+function poiLootHistoryForCurrentMission(poiId) {
+  if (!currentMission.poiLootHistory) currentMission.poiLootHistory = {};
+  if (!Array.isArray(currentMission.poiLootHistory[poiId])) currentMission.poiLootHistory[poiId] = [];
+  return currentMission.poiLootHistory[poiId];
+}
+
+function createPoiLootInstance(poiId) {
+  const history = poiLootHistoryForCurrentMission(poiId);
+  history.push([]);
+  return history.length - 1;
+}
+
+function assignablePoiLootInstanceIndex(poiId, preferNewest = false) {
+  const history = poiLootHistoryForCurrentMission(poiId);
+  const slots = config.poiTypes.find((x) => x.id === poiId)?.slots || 0;
+  if (!history.length || slots <= 0) return -1;
+  const start = preferNewest ? history.length - 1 : 0;
+  const end = preferNewest ? -1 : history.length;
+  const step = preferNewest ? -1 : 1;
+  for (let i = start; i !== end; i += step) {
+    if (history[i].length < slots) return i;
+  }
+  return history.length - 1;
+}
+
+function recordPoiLootPickup(poiId, itemId, { denom = null, instanceIndex = null, preferNewest = false } = {}) {
+  const history = poiLootHistoryForCurrentMission(poiId);
+  const idx = Number.isInteger(instanceIndex) && history[instanceIndex]
+    ? instanceIndex
+    : assignablePoiLootInstanceIndex(poiId, preferNewest);
+  if (idx < 0 || !history[idx]) return;
+  history[idx].push(denom === null ? { itemId } : { itemId, denom });
+}
+
+function removeRecordedPoiLootPickup(poiId, itemId, denom = null) {
+  const history = poiLootHistoryForCurrentMission(poiId);
+  for (let instanceIndex = history.length - 1; instanceIndex >= 0; instanceIndex -= 1) {
+    const instance = history[instanceIndex];
+    for (let pickupIndex = instance.length - 1; pickupIndex >= 0; pickupIndex -= 1) {
+      const pickup = instance[pickupIndex];
+      if (pickup.itemId !== itemId) continue;
+      if (denom === null && pickup.denom !== undefined) continue;
+      if (denom !== null && String(pickup.denom) !== String(denom)) continue;
+      instance.splice(pickupIndex, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+function removePoiLootInstance(poiId) {
+  const history = poiLootHistoryForCurrentMission(poiId);
+  const removed = history.pop();
+  if (!Array.isArray(removed)) return false;
+  for (let i = removed.length - 1; i >= 0; i -= 1) {
+    const pickup = removed[i];
+    currentMission.itemDrops[poiId][pickup.itemId] = Math.max(0, (currentMission.itemDrops[poiId][pickup.itemId] || 0) - 1);
+    if (pickup.denom !== undefined) {
+      currentMission.denomCounts[poiId][pickup.itemId][pickup.denom] = Math.max(0, (currentMission.denomCounts[poiId][pickup.itemId][pickup.denom] || 0) - 1);
+      const stack = denomStackForCurrentMission(poiId, pickup.itemId);
+      let stackIndex = -1;
+      for (let j = stack.length - 1; j >= 0; j -= 1) {
+        if (String(stack[j]) === String(pickup.denom)) {
+          stackIndex = j;
+          break;
+        }
+      }
+      if (stackIndex >= 0) stack.splice(stackIndex, 1);
+    }
+  }
+  return true;
+}
+
 // Shared by both the desktop inline rows (poi-grid's own click handler,
 // below) and the mobile item popup (next section) — same mutation, same
 // undo-stack bookkeeping, just triggered from two different bits of DOM.
-function tallyItemInc(poiId, itemId) {
+function tallyItemInc(poiId, itemId, options = {}) {
   currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
+  recordPoiLootPickup(poiId, itemId, options);
   persistCurrentMission();
   renderPoiGrid();
   renderItemPopupIfOpen();
@@ -689,6 +908,9 @@ function tallyItemDec(poiId, itemId) {
     if (stack && stack.length > 0) {
       const undoneDenom = stack.pop();
       currentMission.denomCounts[poiId][itemId][undoneDenom] = Math.max(0, (currentMission.denomCounts[poiId][itemId][undoneDenom] || 0) - 1);
+      removeRecordedPoiLootPickup(poiId, itemId, undoneDenom);
+    } else {
+      removeRecordedPoiLootPickup(poiId, itemId);
     }
     currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) - 1);
   }
@@ -698,12 +920,13 @@ function tallyItemDec(poiId, itemId) {
   renderStats();
 }
 
-function tallyItemIncDenom(poiId, itemId, denom) {
+function tallyItemIncDenom(poiId, itemId, denom, options = {}) {
   currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
   if (!currentMission.denomCounts[poiId]) currentMission.denomCounts[poiId] = {};
   if (!currentMission.denomCounts[poiId][itemId]) currentMission.denomCounts[poiId][itemId] = {};
   currentMission.denomCounts[poiId][itemId][denom] = (currentMission.denomCounts[poiId][itemId][denom] || 0) + 1;
   denomStackForCurrentMission(poiId, itemId).push(denom);
+  recordPoiLootPickup(poiId, itemId, { ...options, denom });
   persistCurrentMission();
   renderPoiGrid();
   renderItemPopupIfOpen();
@@ -715,6 +938,7 @@ function tallyItemIncDenom(poiId, itemId, denom) {
 // logging a find never requires scrolling to the specific POI's card.
 function foundPoi(poiId) {
   currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
+  const instanceIndex = createPoiLootInstance(poiId);
   persistCurrentMission();
   renderPoiGrid();
   renderStats();
@@ -723,7 +947,7 @@ function foundPoi(poiId) {
   // you've found) are filled — see the "Item popup" section below. The
   // Simplified View toggle (right on the Tally page) turns this off in
   // favor of just marking it found and tallying items manually.
-  if (simplifiedView) startGuidedFlow(poiId);
+  if (simplifiedView) startGuidedFlow(poiId, instanceIndex);
 }
 
 // Only shown in Simplified View — that's specifically where scrolling to a
@@ -767,6 +991,7 @@ on('poi-grid', 'click', (e) => {
     foundPoi(poiId);
     return;
   } else if (action === 'poi-dec') {
+    removePoiLootInstance(poiId);
     currentMission.poiCounts[poiId] = Math.max(0, (currentMission.poiCounts[poiId] || 0) - 1);
   } else if (action === 'item-tile-open') {
     showItemPopup(poiId, btn.dataset.item);
@@ -797,7 +1022,7 @@ on('poi-grid', 'click', (e) => {
      looting a bunker one slot at a time instead of tallying items in
      whatever order/quantity you feel like afterward. */
 
-// { mode: 'single', poiId, itemId } | { mode: 'guided', poiId, itemId: string|null } | null
+// { mode: 'single', poiId, itemId } | { mode: 'guided', poiId, itemId: string|null, instanceIndex: number|null } | null
 // Guided mode's itemId is null while on the "pick an item" step, and set
 // once an item's been picked, while waiting on "pick an amount".
 let openItemPopup = null;
@@ -815,13 +1040,17 @@ function itemPopupHtml() {
         </div>
         <button class="btn btn-icon close-btn" data-action="item-popup-close" aria-label="Close">✕</button>
       </div>
-      <div class="poi-items">
-        ${config.poiTypes.map((x) => `
+      <div class="poi-items poi-pick-grid">
+        ${config.poiTypes.map((x) => {
+          const preview = poiPreviewImage(x.id);
+          return `
           <button class="item-tile" type="button" data-action="poi-pick-select" data-poi="${x.id}">
+            ${preview ? `<img class="poi-pick-preview" src="${esc(preview.src)}" alt="${esc(preview.alt)}" loading="eager" decoding="async" />` : ''}
             <span class="item-tile-name">${esc(x.name)}</span>
             <span class="item-tile-sub">${x.slots} SLOT${x.slots === 1 ? '' : 'S'}</span>
           </button>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     `;
   }
@@ -895,7 +1124,9 @@ function itemPopupHtml() {
 
 function renderItemPopupIfOpen() {
   if (!openItemPopup) return;
-  el('item-popup').innerHTML = itemPopupHtml();
+  const popup = el('item-popup');
+  popup.classList.toggle('item-popup-poi-pick', openItemPopup.mode === 'poi-pick');
+  popup.innerHTML = itemPopupHtml();
 }
 
 function openPopup(state) {
@@ -909,8 +1140,8 @@ function showItemPopup(poiId, itemId) {
   openPopup({ mode: 'single', poiId, itemId });
 }
 
-function startGuidedFlow(poiId) {
-  openPopup({ mode: 'guided', poiId, itemId: null });
+function startGuidedFlow(poiId, instanceIndex = null) {
+  openPopup({ mode: 'guided', poiId, itemId: null, instanceIndex });
 }
 
 function startPoiPick() {
@@ -940,21 +1171,21 @@ function guidedAdvanceOrClose() {
 
 function guidedPickItem(itemId) {
   if (!openItemPopup || openItemPopup.mode !== 'guided') return;
-  const { poiId } = openItemPopup;
+  const { poiId, instanceIndex } = openItemPopup;
   const item = config.itemTypes.find((x) => x.id === itemId);
   if (item.denominations && item.denominations.length > 0) {
     openItemPopup.itemId = itemId;
     renderItemPopupIfOpen();
   } else {
-    tallyItemInc(poiId, itemId);
+    tallyItemInc(poiId, itemId, { instanceIndex, preferNewest: true });
     guidedAdvanceOrClose();
   }
 }
 
 function guidedPickAmount(denom) {
   if (!openItemPopup || openItemPopup.mode !== 'guided') return;
-  const { poiId, itemId } = openItemPopup;
-  tallyItemIncDenom(poiId, itemId, denom);
+  const { poiId, itemId, instanceIndex } = openItemPopup;
+  tallyItemIncDenom(poiId, itemId, denom, { instanceIndex, preferNewest: true });
   guidedAdvanceOrClose();
 }
 
@@ -1128,7 +1359,7 @@ async function trySyncMission(mission) {
 
 async function syncPendingMissions() {
   if (!serverUrl) {
-    setSyncStatus('OFFLINE');
+    setSyncStatus('OFFLINE', 'error');
     return;
   }
   const ok = await pingServer(serverUrl);
@@ -1889,6 +2120,7 @@ on('reset-data', 'click', () => {
 /* ---------------- Init ---------------- */
 
 function init() {
+  safe(() => preloadImages(GUIDE_PRELOAD_SOURCES), 'preloadGuideImages');
   safe(renderClientBadge, 'renderClientBadge');
   safe(renderSimplifiedViewToggle, 'renderSimplifiedViewToggle');
   safe(renderQuickAddBar, 'renderQuickAddBar');
@@ -1899,7 +2131,16 @@ function init() {
   safe(renderStats, 'renderStats');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');
   safe(() => startQuickGuide(false), 'startQuickGuide');
-  document.fonts?.ready?.then(() => refreshQuickGuideIfOpen());
+  const finishBoot = () => {
+    document.body.classList.remove('booting');
+    refreshQuickGuideIfOpen();
+  };
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(finishBoot, finishBoot);
+    setTimeout(finishBoot, 1200);
+  } else {
+    requestAnimationFrame(finishBoot);
+  }
   syncPendingMissions().then(() => {
     if (!el('stats-global')?.classList.contains('hidden')) refreshGlobalStats();
   }).catch((err) => console.error('Stat Gatherer: initial sync failed', err));

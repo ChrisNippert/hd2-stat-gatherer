@@ -3,33 +3,34 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>STAT GATHERER // FIELD DATA TERMINAL</title>
+<title>MINISTRY OF STATISTICS // SUPER EARTH TERMINAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Staatliches&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260824x" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css?v=20260820an" />
 </head>
-<body>
+<body class="booting">
 <div class="scanlines" aria-hidden="true"></div>
 
 <header class="hud-header">
   <div class="brand">
-    <span class="brand-star">★</span>
+    <img class="brand-logo" src="assets/guide/super-earth-logo.png" alt="" />
     <div class="brand-text">
-      <h1>STAT GATHERER</h1>
-      <span class="brand-sub">FIELD DATA TERMINAL</span>
+      <h1>MINISTRY OF STATISTICS</h1>
+      <span class="brand-sub">SUPER EARTH FIELD TERMINAL</span>
     </div>
   </div>
   <div class="header-controls">
-    <button class="client-badge" id="client-badge" title="Open settings to change your Diver ID">
-      <span class="label">DIVER ID</span>
-      <span id="client-id-display">—</span>
-    </button>
-    <span class="sync-status" id="sync-status">OFFLINE</span>
     <label class="toggle-row toggle-row-header" for="simplified-view-toggle" title="Tap-to-open tiles + a guided pickup flow (on), or classic always-visible inline rows with manual tallying (off) — same setting either way, just moved here so it stays put regardless of page or layout.">
       <input type="checkbox" id="simplified-view-toggle" />
       <span class="toggle-switch"></span>
       <span class="toggle-label">Simplified</span>
     </label>
+    <button class="client-badge" id="client-badge" title="Open settings to change your Diver ID">
+      <span class="label">DIVER ID</span>
+      <span id="client-id-display">—</span>
+    </button>
+    <span class="terminal-badge error" id="terminal-badge">MINISTRY TERMINAL // OFFLINE</span>
     <button id="settings-btn" class="btn btn-icon" aria-label="Settings">⚙</button>
   </div>
 </header>
@@ -201,6 +202,6 @@
 <div id="item-popup" class="item-popup hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260824x"></script>
+<script type="module" src="js/main.js?v=20260820an"></script>
 </body>
 </html>

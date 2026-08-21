@@ -104,6 +104,14 @@ function blankDenomPickHistory(config) {
   return denomPickHistory;
 }
 
+function blankPoiLootHistory(config) {
+  const poiLootHistory = {};
+  config.poiTypes.forEach((p) => {
+    poiLootHistory[p.id] = [];
+  });
+  return poiLootHistory;
+}
+
 export const SQUAD_MODES = ['solo', 'solo_warp', 'multiplayer'];
 export const DEFAULT_SQUAD_MODE = 'solo';
 
@@ -166,6 +174,7 @@ function blankMission(config) {
     itemDrops,
     denomCounts,
     denomPickHistory: blankDenomPickHistory(config),
+    poiLootHistory: blankPoiLootHistory(config),
   };
 }
 
@@ -180,11 +189,13 @@ function reconcileWithConfig(mission, config) {
   if (mission.faction === undefined) mission.faction = '';
   if (!mission.denomCounts || typeof mission.denomCounts !== 'object') mission.denomCounts = {};
   if (!mission.denomPickHistory || typeof mission.denomPickHistory !== 'object') mission.denomPickHistory = {};
+  if (!mission.poiLootHistory || typeof mission.poiLootHistory !== 'object') mission.poiLootHistory = {};
   config.poiTypes.forEach((p) => {
     if (!(p.id in mission.poiCounts)) mission.poiCounts[p.id] = 0;
     if (!mission.itemDrops[p.id]) mission.itemDrops[p.id] = {};
     if (!mission.denomCounts[p.id] || typeof mission.denomCounts[p.id] !== 'object') mission.denomCounts[p.id] = {};
     if (!mission.denomPickHistory[p.id]) mission.denomPickHistory[p.id] = {};
+    if (!Array.isArray(mission.poiLootHistory[p.id])) mission.poiLootHistory[p.id] = [];
     config.itemTypes.forEach((i) => {
       if (!(i.id in mission.itemDrops[p.id])) mission.itemDrops[p.id][i.id] = 0;
       if (Array.isArray(i.denominations) && i.denominations.length > 0) {
@@ -226,7 +237,7 @@ export function completeMission(config) {
   const mission = getCurrentMission(config);
   mission.endedAt = Date.now();
   const history = getHistory();
-  const { denomPickHistory, ...persistedMission } = mission;
+  const { denomPickHistory, poiLootHistory, ...persistedMission } = mission;
   const completed = { ...persistedMission, synced: false };
   history.push(completed);
   saveHistory(history);
