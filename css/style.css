@@ -610,6 +610,24 @@ main {
   font-size: 16px;
 }
 
+.derived-subtitle {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.log-edit-field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.log-derived-subtitle {
+  padding-top: 0;
+}
+
 .stats-filter-row {
   display: flex;
   align-items: center;

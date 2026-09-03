@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260820ar" />
+<link rel="stylesheet" href="css/style.css?v=20260826h" />
 </head>
 <body class="booting">
 <div class="scanlines" aria-hidden="true"></div>
@@ -21,7 +21,7 @@
     </div>
   </div>
   <div class="header-controls">
-    <label class="toggle-row toggle-row-header" for="simplified-view-toggle" title="Tap-to-open tiles + a guided pickup flow (on), or classic always-visible inline rows with manual tallying (off) — same setting either way, just moved here so it stays put regardless of page or layout.">
+    <label class="toggle-row toggle-row-header" for="simplified-view-toggle" title="Tap-to-open tiles + a guided pickup flow (on), or classic always-visible inline rows where item clicks can auto-count the POI as needed (off) — same setting either way, just moved here so it stays put regardless of page or layout.">
       <input type="checkbox" id="simplified-view-toggle" />
       <span class="toggle-switch"></span>
       <span class="toggle-label">Simplified</span>
@@ -59,14 +59,20 @@
         <select id="difficulty-select" class="squad-select"></select>
       </div>
       <div class="squad-mode">
-        <span class="timer-label">FACTION</span>
-        <select id="faction-select" class="squad-select"></select>
+        <span class="timer-label">MISSION</span>
+        <input type="text" id="mission-type-input" class="squad-select" list="mission-type-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Search the fixed mission objective list sourced from helldivers.wiki.gg." />
+      </div>
+      <div class="squad-mode">
+        <span class="timer-label">CITY</span>
+        <select id="city-type-select" class="squad-select"></select>
       </div>
       <div class="squad-mode">
         <span class="timer-label">PLANET</span>
-        <input type="text" id="planet-input" class="squad-select" list="planet-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Search the fixed list of 266 planets from the current galactic war map." />
+        <input type="text" id="planet-input" class="squad-select" list="planet-datalist" placeholder="Type to search…" autocomplete="off" spellcheck="false" title="Search the fixed list of 266 planets from the current galactic war map. Picking one will auto-fill faction when the wiki reports a current enemy owner." />
+        <div id="faction-display" class="derived-subtitle" title="Derived from the selected planet">Faction: Unlabeled</div>
       </div>
     </div>
+    <datalist id="mission-type-datalist"></datalist>
     <datalist id="planet-datalist"></datalist>
     <div class="mission-actions">
       <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
@@ -77,14 +83,14 @@
   <section class="panel" id="poi-panel">
     <div class="poi-panel-head">
       <h2 class="panel-title">MINOR PLACES OF INTEREST</h2>
-      <button id="mission-config-btn" class="btn btn-icon" aria-label="Mission Setup" title="Squad, difficulty, faction, planet, and mission actions">☰</button>
+      <button id="mission-config-btn" class="btn btn-icon" aria-label="Mission Setup" title="Squad, difficulty, mission type, city/non-city, faction, planet, and mission actions">☰</button>
     </div>
     <div class="poi-mission-actions">
       <button id="poi-new-mission-btn" class="btn btn-primary">⚑ NEW MISSION — SAVE &amp; RESET</button>
       <button id="poi-clear-mission-btn" class="btn btn-danger">🗑 CLEAR (DON'T SAVE)</button>
     </div>
     <div class="quick-add-bar hidden" id="quick-add-bar"></div>
-    <p class="hint">Tap +1 FOUND to log a minor place of interest, then pick what dropped from each special loot slot inside it until it's full. This is for the bunker/container/pod rewards themselves — not loose samples lying nearby. For Medals, Requisition, and Super Credits, pick the exact amount too.</p>
+    <p class="hint">Simplified View: tap +1 FOUND, then pick what dropped from each special loot slot until it's full. Advanced View: item clicks can auto-count the matching POI for you as needed. This is for the bunker/container/pod rewards themselves — not loose samples lying nearby. For Medals, Requisition, and Super Credits, pick the exact amount too.</p>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
 </main>
@@ -102,7 +108,9 @@
         <option value="unknown">Unlabeled</option>
       </select>
       <select id="stats-difficulty-filter" class="squad-select"></select>
+      <select id="stats-mission-type-filter" class="squad-select"></select>
       <select id="stats-faction-filter" class="squad-select"></select>
+      <select id="stats-city-type-filter" class="squad-select"></select>
       <select id="stats-planet-filter" class="squad-select"></select>
     </div>
     <div class="tabs">
@@ -139,7 +147,9 @@
           <option value="unknown">Unlabeled</option>
         </select>
         <select id="global-log-difficulty-filter" class="squad-select"></select>
+        <select id="global-log-mission-type-filter" class="squad-select"></select>
         <select id="global-log-faction-filter" class="squad-select"></select>
+        <select id="global-log-city-type-filter" class="squad-select"></select>
         <select id="global-log-planet-filter" class="squad-select"></select>
         <select id="global-log-poi-filter" class="squad-select" title="Total minor places found on the mission, across all minor place types combined">
           <option value="0">Any Minor Places Found</option>
@@ -202,6 +212,6 @@
 <div id="item-popup" class="item-popup hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260820ar"></script>
+<script type="module" src="js/main.js?v=20260826h"></script>
 </body>
 </html>

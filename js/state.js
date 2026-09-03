@@ -4,8 +4,10 @@ const HISTORY_KEY = 'sg_mission_history';
 const SERVER_URL_KEY = 'sg_server_url';
 const SQUAD_MODE_KEY = 'sg_last_squad_mode';
 const LAST_DIFFICULTY_KEY = 'sg_last_difficulty';
+const LAST_MISSION_TYPE_KEY = 'sg_last_mission_type';
 const LAST_PLANET_KEY = 'sg_last_planet';
 const LAST_FACTION_KEY = 'sg_last_faction';
+const LAST_CITY_TYPE_KEY = 'sg_last_city_type';
 const SIMPLIFIED_VIEW_KEY = 'sg_simplified_view';
 const QUICK_GUIDE_SEEN_KEY = 'sg_quick_guide_seen';
 
@@ -61,6 +63,13 @@ export function setLastDifficulty(id) {
   localStorage.setItem(LAST_DIFFICULTY_KEY, id || '');
 }
 
+export function getLastMissionType() {
+  return localStorage.getItem(LAST_MISSION_TYPE_KEY) || '';
+}
+export function setLastMissionType(id) {
+  localStorage.setItem(LAST_MISSION_TYPE_KEY, id || '');
+}
+
 export function getLastPlanet() {
   return localStorage.getItem(LAST_PLANET_KEY) || '';
 }
@@ -73,6 +82,13 @@ export function getLastFaction() {
 }
 export function setLastFaction(id) {
   localStorage.setItem(LAST_FACTION_KEY, id || '');
+}
+
+export function getLastCityType() {
+  return localStorage.getItem(LAST_CITY_TYPE_KEY) || '';
+}
+export function setLastCityType(id) {
+  localStorage.setItem(LAST_CITY_TYPE_KEY, id || '');
 }
 
 // Lifetime (not per-mission) tally of observed drop amounts per item type:
@@ -167,9 +183,11 @@ function blankMission(config) {
     endedAt: null,
     allMinorPlacesCollected: false,
     squadMode: getLastSquadMode(),
-    difficulty: getLastDifficulty(),
+    difficulty: getLastDifficulty() || config.difficulties[0]?.id || '',
+    missionType: getLastMissionType(),
     planet: getLastPlanet(),
     faction: getLastFaction(),
+    cityType: getLastCityType() || config.cityTypes[0]?.id || '',
     poiCounts,
     itemDrops,
     denomCounts,
@@ -185,8 +203,10 @@ function reconcileWithConfig(mission, config) {
   }
   if (mission.allMinorPlacesCollected === undefined) mission.allMinorPlacesCollected = false;
   if (mission.difficulty === undefined) mission.difficulty = '';
+  if (mission.missionType === undefined) mission.missionType = '';
   if (mission.planet === undefined) mission.planet = '';
   if (mission.faction === undefined) mission.faction = '';
+  if (mission.cityType === undefined) mission.cityType = '';
   if (!mission.denomCounts || typeof mission.denomCounts !== 'object') mission.denomCounts = {};
   if (!mission.denomPickHistory || typeof mission.denomPickHistory !== 'object') mission.denomPickHistory = {};
   if (!mission.poiLootHistory || typeof mission.poiLootHistory !== 'object') mission.poiLootHistory = {};
@@ -269,9 +289,10 @@ export function replaceHistory(missions) {
   saveHistory(missions);
 }
 
-// Edits an already-saved mission (POI/item counts, squad mode, difficulty,
-// faction, planet). Marks it unsynced so the correction gets pushed to the
-// server on the next sync, overwriting the old copy there (same id).
+// Edits an already-saved mission (POI/item counts plus mission labels like
+// squad mode, difficulty, mission type, faction, city/non-city, planet).
+// Marks it unsynced so the correction gets pushed to the server on the next
+// sync, overwriting the old copy there (same id).
 export function updateMission(missionId, patch) {
   const history = getHistory();
   const idx = history.findIndex((m) => m.id === missionId);

@@ -52,6 +52,89 @@ const DEFAULT_FACTIONS = [
   { id: 'illuminate', name: 'Illuminate' },
 ];
 
+// Main mission objective names sourced from helldivers.wiki.gg's Cargo
+// Missions table (`api.php?action=cargoquery&tables=Missions...`) using rows
+// with a real min_difficulty, de-duped by the player-facing `title` field so
+// entries like Blitz: Search and Destroy don't show up twice just because the
+// wiki stores separate per-faction pages.
+const DEFAULT_MISSION_TYPES = [
+  'Activate Oil Pumps',
+  'Activate TCS+ Station',
+  'Activate Terminid Control System',
+  'Annex Untapped Mineral Sites',
+  'Blitz: Destroy Bio-Processors',
+  'Blitz: Destroy Illuminate Warp Gateways',
+  'Blitz: Destroy Illuminate Warp Ships',
+  'Blitz: Search and Destroy',
+  'Blitz: Secure Research Site',
+  'Blitz: Suppress Toxic Pollination',
+  'Chart Terminid Tunnels',
+  'Cleanse Infested District',
+  'Collect Gloom Spore Readings',
+  'Collect Gloom-Infused Oil',
+  'Collect Meteorological Data',
+  'Commando: Acquire Evidence',
+  'Commando: Extract Intel',
+  'Commando: Secure Black Box',
+  'Conduct Geological Survey',
+  'Conduct Mobile E-711 Extraction',
+  'Confiscate Assets',
+  'Deactivate Terminid Control System',
+  'Democratize the Void',
+  'Deploy Dark Fluid',
+  'Destroy Command Bunkers',
+  'Destroy Exospire',
+  'Destroy Gazer Spire',
+  'Destroy Harvesters',
+  'Destroy Spore Lung',
+  'Destroy Transmission Network',
+  'Eliminate Automaton Factory Strider',
+  'Eliminate Automaton Hulks',
+  'Eliminate Bile Titans',
+  'Eliminate Brood Commanders',
+  'Eliminate Chargers',
+  'Eliminate Devastators',
+  'Eliminate Impaler',
+  'Emergency Evacuation',
+  'Enable Oil Extraction',
+  'Eradicate Automaton Forces',
+  'Eradicate Illuminate Forces',
+  'Eradicate Terminid Swarm',
+  'Evacuate Colonists',
+  'Evacuate High-Value Assets',
+  'Extract Anomalous Material',
+  'Extract E-711',
+  'Extract Research Probe Data',
+  'Free Colony',
+  'Halt Cyborg Production',
+  'Infiltrate Illuminate Lair',
+  'Launch ICBM',
+  'Neutralize Ground-to-Orbit Defenses',
+  'Nuke Nursery',
+  'Purge Hatcheries',
+  'Rapid Acquisition',
+  'Repel Invasion Fleet',
+  'Restart Pumps',
+  'Restore Air Quality',
+  'Retrieve Essential Personnel',
+  'Retrieve Recon Craft Intel',
+  'Retrieve Valuable Data',
+  'Sabotage Air Base',
+  'Sabotage Orgo-Plasma Synthesis',
+  'Sabotage Supply Bases',
+  'Seize Industrial Complex',
+  'Spread Democracy',
+  'Start Fuel Pumps',
+  'Take Down Overship',
+  'Terminate Illegal Broadcast',
+  'Upload Escape Pod Data',
+].map((name) => ({ id: slugify(name), name }));
+
+const DEFAULT_CITY_TYPES = [
+  { id: 'city', name: 'City' },
+  { id: 'non_city', name: 'Non-City' },
+];
+
 // Full planet list sourced from helldivers.fandom.com/wiki/Planets_and_Sectors
 // (266 entries incl. Super Earth). The galactic war adds/changes planets over
 // time, so this will drift — but the list is fixed (not user-editable); if it
@@ -341,6 +424,8 @@ export const DEFAULT_CONFIG = {
   ],
   difficulties: DEFAULT_DIFFICULTIES,
   factions: DEFAULT_FACTIONS,
+  missionTypes: DEFAULT_MISSION_TYPES,
+  cityTypes: DEFAULT_CITY_TYPES,
   planets: DEFAULT_PLANETS,
 };
 
@@ -359,19 +444,22 @@ export function loadConfig() {
     });
     if (!Array.isArray(parsed.difficulties)) parsed.difficulties = structuredClone(DEFAULT_DIFFICULTIES);
     if (!Array.isArray(parsed.factions)) parsed.factions = structuredClone(DEFAULT_FACTIONS);
+    if (!Array.isArray(parsed.missionTypes)) parsed.missionTypes = structuredClone(DEFAULT_MISSION_TYPES);
+    if (!Array.isArray(parsed.cityTypes)) parsed.cityTypes = structuredClone(DEFAULT_CITY_TYPES);
     if (!Array.isArray(parsed.planets)) parsed.planets = structuredClone(DEFAULT_PLANETS);
     // Taxonomy is app-owned/fixed now, including removals — prune anything
     // that no longer exists in the shipped defaults so stale cached configs
     // don't keep rendering obsolete items like Common Samples forever.
-    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'missionTypes', 'cityTypes', 'planets'].forEach((key) => {
       const allowedIds = new Set(DEFAULT_CONFIG[key].map((entry) => entry.id));
       parsed[key] = parsed[key].filter((entry) => allowedIds.has(entry.id));
     });
     // The taxonomy is fixed and shipped with the app, but a user's saved
     // config predates additions like this one — merge in any default entries
-    // (by id) that aren't already present, across all five taxonomy lists,
-    // so everyone converges on the same fixed set without needing a reset.
-    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+    // (by id) that aren't already present, across all shipped taxonomy
+    // lists, so everyone converges on the same fixed set without needing a
+    // reset.
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'missionTypes', 'cityTypes', 'planets'].forEach((key) => {
       const existingIds = new Set(parsed[key].map((entry) => entry.id));
       DEFAULT_CONFIG[key].forEach((entry) => {
         if (!existingIds.has(entry.id)) parsed[key].push(structuredClone(entry));
@@ -380,7 +468,7 @@ export function loadConfig() {
     // Display names are app-owned text, not user data (there's no rename UI) —
     // resync them from defaults so a stale cached config (e.g. from before a
     // POI got renamed "Two-Man Bunker" -> "Bunker") updates without a reset.
-    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'planets'].forEach((key) => {
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'missionTypes', 'cityTypes', 'planets'].forEach((key) => {
       const namesById = new Map(DEFAULT_CONFIG[key].map((entry) => [entry.id, entry.name]));
       parsed[key].forEach((entry) => {
         if (namesById.has(entry.id)) entry.name = namesById.get(entry.id);

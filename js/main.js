@@ -1,18 +1,18 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260820ar';
-import * as state from './state.js?v=20260820ar';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260820ar';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260820ar';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260826h';
+import * as state from './state.js?v=20260826h';
+import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260826h';
+import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260826h';
 
 let config = loadConfig();
 let clientId = state.getClientId();
 let serverUrl = state.getServerUrl();
 let currentMission = state.getCurrentMission(config);
 let globalMissions = null; // lazily fetched
-let statsFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all' };
+let statsFilters = { squadMode: 'all', difficulty: 'all', missionType: 'all', faction: 'all', cityType: 'all', planet: 'all' };
 // minPois: 0 means "any" (unfiltered) — matches how squadMode/difficulty/etc
 // use 'all' as their unfiltered sentinel, just numeric since POI count isn't
 // a fixed taxonomy id.
-let globalLogFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', planet: 'all', minPois: 0 };
+let globalLogFilters = { squadMode: 'all', difficulty: 'all', missionType: 'all', faction: 'all', cityType: 'all', planet: 'all', minPois: 0 };
 // In-memory only (not persisted): which POI cards have their item-tile grid
 // manually expanded, on a short viewport where it's collapsed by default —
 // see the .is-expanded / max-height:740px handling in style.css. Only
@@ -22,6 +22,7 @@ let globalLogFilters = { squadMode: 'all', difficulty: 'all', faction: 'all', pl
 let expandedPoiCards = new Set();
 let quickGuide = null;
 let quickGuideTrackTimer = null;
+let planetFactionLookupToken = 0;
 
 const el = (id) => document.getElementById(id);
 
@@ -202,8 +203,8 @@ function buildQuickGuideSteps() {
       target: () => window.innerWidth < 1300 ? el('mission-config-btn') : document.querySelector('#mission-panel .mission-meta-grid'),
       title: 'Mission Setup',
       body: window.innerWidth < 1300
-        ? 'Use this drawer for squad mode, difficulty, faction, and planet before or during a run.'
-        : 'Your squad mode, difficulty, faction, and planet live here for the current run.',
+        ? 'Use this drawer for squad mode, difficulty, mission type, city/non-city, faction, and planet before or during a run.'
+        : 'Your squad mode, difficulty, mission type, city/non-city, faction, and planet live here for the current run.',
     },
     {
       target: currentGuideMissionControlTarget,
@@ -215,7 +216,7 @@ function buildQuickGuideSteps() {
       title: simplifiedView ? 'Log a Minor Place Fast' : 'Mark a Minor Place Found',
       body: simplifiedView
         ? 'Use Add Minor Place for the fastest phone flow, or tap +1 FOUND on a specific card if you already know which one you found.'
-        : 'Tap +1 FOUND on the matching Minor Place card each time you find one, then tally what dropped on that card.',
+        : 'Click the drops directly on the matching Minor Place card and the app will auto-count that POI for you as slots fill; +1 FOUND still works if you want to mark the place first.',
     },
     {
       target: () => document.querySelector('#poi-grid .poi-card'),
@@ -291,7 +292,7 @@ function buildQuickGuideSteps() {
     {
       target: () => el('simplified-view-toggle')?.closest('.toggle-row'),
       title: 'Simplified View',
-      body: 'Simplified ON gives you the guided phone-friendly flow. OFF shows every item row inline for faster manual tallying.',
+      body: 'Simplified ON gives you the guided phone-friendly flow. OFF shows every item row inline and item clicks auto-count the matching POI as needed.',
     },
     {
       target: () => document.querySelector('button[data-page="stats"]'),
@@ -600,7 +601,7 @@ on('squad-mode-select', 'change', (e) => {
   persistCurrentMission();
 });
 
-/* ---------------- Meta selects (Difficulty / Faction / Planet) ---------------- */
+/* ---------------- Meta labels (difficulty / mission / faction / city / planet) ---------------- */
 
 // Populates a <select>'s options from a config list, optionally with an
 // "all"/"skip" leading option and an "unknown" trailing one, preserving the
@@ -622,6 +623,21 @@ function populateSelectOptions(selectEl, entries, opts = {}) {
 // Planet has 260+ options, so it's a searchable text input backed by a
 // <datalist> instead of a plain <select> — see planet-input's change handler
 // for how typed text resolves to (or creates) a planet entry.
+function renderMissionTypeDatalist() {
+  const list = el('mission-type-datalist');
+  if (!list) return;
+  list.innerHTML = config.missionTypes.map((m) => `<option value="${esc(m.name)}"></option>`).join('');
+}
+
+function findMissionTypeById(id) {
+  return config.missionTypes.find((m) => m.id === id);
+}
+
+function findMissionTypeByName(name) {
+  const normalized = name.trim().toLowerCase();
+  return config.missionTypes.find((m) => m.name.toLowerCase() === normalized);
+}
+
 function renderPlanetDatalist() {
   const list = el('planet-datalist');
   if (!list) return;
@@ -637,18 +653,103 @@ function findPlanetByName(name) {
   return config.planets.find((p) => p.name.toLowerCase() === normalized);
 }
 
+function labelForConfigEntry(entries, id, fallback = 'Unlabeled') {
+  const entry = entries.find((x) => x.id === id);
+  return entry ? entry.name : fallback;
+}
+
+function factionSubtitleText(factionId) {
+  return `Faction: ${labelForConfigEntry(config.factions, factionId)}`;
+}
+
+function normalizePlanetOwnerToFactionId(ownerTitle) {
+  const normalized = String(ownerTitle || '').trim().toLowerCase();
+  if (normalized === 'terminids') return 'terminids';
+  if (normalized === 'automatons') return 'automatons';
+  if (normalized === 'the illuminate' || normalized === 'illuminate') return 'illuminate';
+  return '';
+}
+
+async function fetchFactionIdForPlanetName(planetName) {
+  const text = `{{#invoke:PlanetStats|RenderPlanetName|${planetName}}}`;
+  const url = `https://helldivers.wiki.gg/api.php?action=parse&contentmodel=wikitext&prop=text&format=json&origin=*&text=${encodeURIComponent(text)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Planet owner lookup failed: ${res.status}`);
+  const data = await res.json();
+  const html = data?.parse?.text?.['*'] || '';
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const ownerTitle = doc.querySelector('.faction-icon a[title]')?.getAttribute('title') || '';
+  return normalizePlanetOwnerToFactionId(ownerTitle);
+}
+
+async function autofillFactionFromPlanet(planet) {
+  const token = ++planetFactionLookupToken;
+  currentMission.faction = '';
+  state.setLastFaction('');
+  if (el('faction-display')) el('faction-display').textContent = factionSubtitleText('');
+  persistCurrentMission();
+  try {
+    const factionId = await fetchFactionIdForPlanetName(planet.name);
+    if (token !== planetFactionLookupToken) return;
+    if (currentMission.planet !== planet.id) return;
+    currentMission.faction = factionId;
+    state.setLastFaction(factionId);
+    if (el('faction-display')) el('faction-display').textContent = factionSubtitleText(factionId);
+    persistCurrentMission();
+  } catch {
+    // Best effort only — a failed wiki lookup leaves faction unlabeled.
+  }
+}
+
 function renderMissionMetaSelects() {
   populateSelectOptions(el('difficulty-select'), config.difficulties);
-  populateSelectOptions(el('faction-select'), config.factions);
+  renderMissionTypeDatalist();
+  populateSelectOptions(el('city-type-select'), config.cityTypes);
   renderPlanetDatalist();
+  if (!currentMission.difficulty && config.difficulties[0]) {
+    currentMission.difficulty = config.difficulties[0].id;
+    state.setLastDifficulty(currentMission.difficulty);
+    persistCurrentMission();
+  }
+  if (!currentMission.cityType && config.cityTypes[0]) {
+    currentMission.cityType = config.cityTypes[0].id;
+    state.setLastCityType(currentMission.cityType);
+    persistCurrentMission();
+  }
   if (el('difficulty-select')) el('difficulty-select').value = currentMission.difficulty || '';
-  if (el('faction-select')) el('faction-select').value = currentMission.faction || '';
+  if (el('mission-type-input')) el('mission-type-input').value = findMissionTypeById(currentMission.missionType)?.name || '';
+  if (el('faction-display')) el('faction-display').textContent = factionSubtitleText(currentMission.faction);
+  if (el('city-type-select')) el('city-type-select').value = currentMission.cityType || '';
   if (el('planet-input')) el('planet-input').value = findPlanetById(currentMission.planet)?.name || '';
+}
+
+function validateCurrentMissionRequiredLabels() {
+  if (!currentMission.difficulty && config.difficulties[0]) {
+    currentMission.difficulty = config.difficulties[0].id;
+    state.setLastDifficulty(currentMission.difficulty);
+    persistCurrentMission();
+    if (el('difficulty-select')) el('difficulty-select').value = currentMission.difficulty;
+  }
+  if (!currentMission.planet) {
+    toast('Pick a planet before saving a mission.', 'error');
+    if (window.innerWidth < 1300) openMissionPanel();
+    return false;
+  }
+  if (!currentMission.cityType && config.cityTypes[0]) {
+    currentMission.cityType = config.cityTypes[0].id;
+    state.setLastCityType(currentMission.cityType);
+    persistCurrentMission();
+    if (el('city-type-select')) el('city-type-select').value = currentMission.cityType;
+  }
+  return true;
 }
 
 function renderStatsFilterSelects() {
   populateSelectOptions(el('stats-difficulty-filter'), config.difficulties, { allLabel: 'All Difficulties', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('stats-mission-type-filter'), config.missionTypes, { allLabel: 'All Mission Types', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('stats-faction-filter'), config.factions, { allLabel: 'All Factions', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('stats-city-type-filter'), config.cityTypes, { allLabel: 'All City / Non-City', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('stats-planet-filter'), config.planets, { allLabel: 'All Planets', unknownLabel: 'Unlabeled' });
 }
 
@@ -657,17 +758,36 @@ on('difficulty-select', 'change', (e) => {
   state.setLastDifficulty(e.target.value);
   persistCurrentMission();
 });
-on('faction-select', 'change', (e) => {
-  currentMission.faction = e.target.value;
-  state.setLastFaction(e.target.value);
+on('mission-type-input', 'change', (e) => {
+  const typed = e.target.value.trim();
+  if (!typed) {
+    currentMission.missionType = '';
+    state.setLastMissionType('');
+    persistCurrentMission();
+    return;
+  }
+  const missionType = findMissionTypeByName(typed);
+  if (!missionType) {
+    e.target.value = findMissionTypeById(currentMission.missionType)?.name || '';
+    toast(`"${typed}" isn't a recognized mission type — pick one from the list.`, 'error');
+    return;
+  }
+  e.target.value = missionType.name;
+  currentMission.missionType = missionType.id;
+  state.setLastMissionType(missionType.id);
+  persistCurrentMission();
+});
+on('city-type-select', 'change', (e) => {
+  currentMission.cityType = e.target.value;
+  state.setLastCityType(e.target.value);
   persistCurrentMission();
 });
 on('planet-input', 'change', (e) => {
   const typed = e.target.value.trim();
   if (!typed) {
-    currentMission.planet = '';
-    state.setLastPlanet('');
-    persistCurrentMission();
+    planetFactionLookupToken += 1;
+    e.target.value = findPlanetById(currentMission.planet)?.name || '';
+    if (currentMission.planet) toast('Planet is required for new mission saves.', 'error');
     return;
   }
   const planet = findPlanetByName(typed);
@@ -680,6 +800,7 @@ on('planet-input', 'change', (e) => {
   currentMission.planet = planet.id;
   state.setLastPlanet(planet.id);
   persistCurrentMission();
+  autofillFactionFromPlanet(planet);
 });
 
 /* ---------------- POI grid ---------------- */
@@ -823,14 +944,22 @@ function poiLootHistoryForCurrentMission(poiId) {
   return currentMission.poiLootHistory[poiId];
 }
 
-function createPoiLootInstance(poiId) {
+function reconcilePoiLootInstancesWithCount(poiId) {
   const history = poiLootHistoryForCurrentMission(poiId);
+  const count = Math.max(0, currentMission.poiCounts[poiId] || 0);
+  while (history.length < count) history.push([]);
+  while (history.length > count) history.pop();
+  return history;
+}
+
+function createPoiLootInstance(poiId) {
+  const history = reconcilePoiLootInstancesWithCount(poiId);
   history.push([]);
   return history.length - 1;
 }
 
 function assignablePoiLootInstanceIndex(poiId, preferNewest = false) {
-  const history = poiLootHistoryForCurrentMission(poiId);
+  const history = reconcilePoiLootInstancesWithCount(poiId);
   const slots = config.poiTypes.find((x) => x.id === poiId)?.slots || 0;
   if (!history.length || slots <= 0) return -1;
   const start = preferNewest ? history.length - 1 : 0;
@@ -843,7 +972,7 @@ function assignablePoiLootInstanceIndex(poiId, preferNewest = false) {
 }
 
 function recordPoiLootPickup(poiId, itemId, { denom = null, instanceIndex = null, preferNewest = false } = {}) {
-  const history = poiLootHistoryForCurrentMission(poiId);
+  const history = reconcilePoiLootInstancesWithCount(poiId);
   const idx = Number.isInteger(instanceIndex) && history[instanceIndex]
     ? instanceIndex
     : assignablePoiLootInstanceIndex(poiId, preferNewest);
@@ -852,7 +981,7 @@ function recordPoiLootPickup(poiId, itemId, { denom = null, instanceIndex = null
 }
 
 function removeRecordedPoiLootPickup(poiId, itemId, denom = null) {
-  const history = poiLootHistoryForCurrentMission(poiId);
+  const history = reconcilePoiLootInstancesWithCount(poiId);
   for (let instanceIndex = history.length - 1; instanceIndex >= 0; instanceIndex -= 1) {
     const instance = history[instanceIndex];
     for (let pickupIndex = instance.length - 1; pickupIndex >= 0; pickupIndex -= 1) {
@@ -868,7 +997,7 @@ function removeRecordedPoiLootPickup(poiId, itemId, denom = null) {
 }
 
 function removePoiLootInstance(poiId) {
-  const history = poiLootHistoryForCurrentMission(poiId);
+  const history = reconcilePoiLootInstancesWithCount(poiId);
   const removed = history.pop();
   if (!Array.isArray(removed)) return false;
   for (let i = removed.length - 1; i >= 0; i -= 1) {
@@ -888,6 +1017,15 @@ function removePoiLootInstance(poiId) {
     }
   }
   return true;
+}
+
+function ensurePoiSlotForAdvancedTally(poiId) {
+  const slots = config.poiTypes.find((x) => x.id === poiId)?.slots || 0;
+  if (slots <= 0) return null;
+  const totalSlots = (currentMission.poiCounts[poiId] || 0) * slots;
+  if (slotsFilled(poiId) < totalSlots) return assignablePoiLootInstanceIndex(poiId, true);
+  currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
+  return createPoiLootInstance(poiId);
 }
 
 // Shared by both the desktop inline rows (poi-grid's own click handler,
@@ -1000,9 +1138,13 @@ on('poi-grid', 'click', (e) => {
     // Only reachable with Simplified View off — .item-row-desktop isn't
     // rendered at all when it's on, tiles/popup handle it there instead.
     const itemId = e.target.closest('.item-row-desktop').dataset.item;
-    if (action === 'item-inc') tallyItemInc(poiId, itemId);
+    const autoPoiOptions = action === 'item-dec' ? null : {
+      instanceIndex: ensurePoiSlotForAdvancedTally(poiId),
+      preferNewest: true,
+    };
+    if (action === 'item-inc') tallyItemInc(poiId, itemId, autoPoiOptions);
     else if (action === 'item-dec') tallyItemDec(poiId, itemId);
-    else tallyItemIncDenom(poiId, itemId, btn.dataset.denom);
+    else tallyItemIncDenom(poiId, itemId, btn.dataset.denom, autoPoiOptions);
     return;
   } else {
     return;
@@ -1255,6 +1397,7 @@ function submitPromptHtml() {
 }
 
 function openSubmitPopup() {
+  if (!validateCurrentMissionRequiredLabels()) return;
   el('submit-popup').innerHTML = submitPromptHtml();
   showAnimated(el('submit-popup-overlay'));
   showAnimated(el('submit-popup'));
@@ -1574,7 +1717,8 @@ function statsHtml(stats) {
 // interface as missions), so Stats just reports the resulting distribution
 // like any other stat: counts and percentages, no +/- controls here. Not
 // filtered by statsFilters — pickup size isn't tied to squad mode,
-// difficulty, faction, or planet — so this uses the raw tally, not `stats`.
+// difficulty, mission type, faction, city/non-city, or planet — so this
+// uses the raw tally, not `stats`.
 function dropSizeStatsHtml(tally) {
   const trackedItems = config.itemTypes.filter((i) => (i.denominations || []).length > 0);
   if (!trackedItems.length) return '';
@@ -1638,8 +1782,16 @@ on('stats-difficulty-filter', 'change', (e) => {
   statsFilters.difficulty = e.target.value;
   renderStats();
 });
+on('stats-mission-type-filter', 'change', (e) => {
+  statsFilters.missionType = e.target.value;
+  renderStats();
+});
 on('stats-faction-filter', 'change', (e) => {
   statsFilters.faction = e.target.value;
+  renderStats();
+});
+on('stats-city-type-filter', 'change', (e) => {
+  statsFilters.cityType = e.target.value;
   renderStats();
 });
 on('stats-planet-filter', 'change', (e) => {
@@ -1716,15 +1868,26 @@ function missionEditFormHtml(mission) {
     .filter(([val]) => val !== 'unknown')
     .map(([val, label]) => `<option value="${val}"${mission.squadMode === val ? ' selected' : ''}>${esc(label)}</option>`)
     .join('');
-  const optList = (entries, selectedId) => entries.map((e) => `<option value="${esc(e.id)}"${selectedId === e.id ? ' selected' : ''}>${esc(e.name)}</option>`).join('');
+  const optList = (entries, selectedId, opts = {}) => {
+    const parts = [];
+    if (opts.blankLabel) {
+      parts.push(`<option value=""${!selectedId ? ' selected' : ''}${opts.blankDisabled ? ' disabled' : ''}>${esc(opts.blankLabel)}</option>`);
+    }
+    parts.push(...entries.map((e) => `<option value="${esc(e.id)}"${selectedId === e.id ? ' selected' : ''}>${esc(e.name)}</option>`));
+    return parts.join('');
+  };
 
   return `
     <div class="log-edit-form hidden">
       <div class="row">
         <select class="squad-select log-edit-field" data-field="squadMode">${squadOptions}</select>
-        <select class="squad-select log-edit-field" data-field="difficulty">${optList(config.difficulties, mission.difficulty)}</select>
-        <select class="squad-select log-edit-field" data-field="faction">${optList(config.factions, mission.faction)}</select>
-        <select class="squad-select log-edit-field" data-field="planet">${optList(config.planets, mission.planet)}</select>
+        <select class="squad-select log-edit-field" data-field="difficulty">${optList(config.difficulties, mission.difficulty, mission.difficulty ? {} : { blankLabel: 'Choose Difficulty', blankDisabled: true })}</select>
+        <select class="squad-select log-edit-field" data-field="missionType">${optList(config.missionTypes, mission.missionType, { blankLabel: 'Choose Mission Type', blankDisabled: true })}</select>
+        <select class="squad-select log-edit-field" data-field="cityType">${optList(config.cityTypes, mission.cityType, mission.cityType ? {} : { blankLabel: 'Choose City / Non-City', blankDisabled: true })}</select>
+        <div class="log-edit-field-stack">
+          <select class="squad-select log-edit-field" data-field="planet">${optList(config.planets, mission.planet, mission.planet ? {} : { blankLabel: 'Choose Planet', blankDisabled: true })}</select>
+          <div class="derived-subtitle log-derived-subtitle" data-field="faction" title="Derived from the selected planet">${esc(factionSubtitleText(mission.faction))}</div>
+        </div>
       </div>
       <label class="mission-check">
         <input type="checkbox" class="log-edit-checkbox" data-field="allMinorPlacesCollected"${mission.allMinorPlacesCollected ? ' checked' : ''} />
@@ -1790,7 +1953,9 @@ function renderLogPage() {
           <div class="log-card-tags">
             <span class="log-tag">${esc(SQUAD_MODE_LABELS[m.squadMode || 'unknown'] || m.squadMode)}</span>
             <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
+            <span class="log-tag">${esc(missionLabel(m, 'missionTypes', 'missionType'))}</span>
             <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
+            <span class="log-tag">${esc(missionLabel(m, 'cityTypes', 'cityType'))}</span>
             <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
             ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
           </div>
@@ -1843,6 +2008,20 @@ on('log-list', 'click', async (e) => {
     const form = card.querySelector('.log-edit-form');
     const patch = {};
     form.querySelectorAll('.log-edit-field').forEach((sel) => { patch[sel.dataset.field] = sel.value; });
+    if (!patch.difficulty) {
+      toast('Pick a difficulty before saving this mission.', 'error');
+      return;
+    }
+    if (!patch.planet) {
+      toast('Pick a planet before saving this mission.', 'error');
+      return;
+    }
+    if (!patch.cityType) {
+      toast('Pick City or Non-City before saving this mission.', 'error');
+      return;
+    }
+    const patchPlanet = config.planets.find((p) => p.id === patch.planet);
+    patch.faction = patchPlanet ? await fetchFactionIdForPlanetName(patchPlanet.name) : '';
     patch.allMinorPlacesCollected = !!form.querySelector('.log-edit-checkbox[data-field="allMinorPlacesCollected"]')?.checked;
     const poiCounts = {};
     const itemDrops = {};
@@ -1879,6 +2058,23 @@ on('log-list', 'click', async (e) => {
   }
 });
 
+on('log-list', 'change', async (e) => {
+  const planetSelect = e.target.closest('.log-edit-field[data-field="planet"]');
+  if (!planetSelect) return;
+  const form = planetSelect.closest('.log-edit-form');
+  const factionDisplay = form?.querySelector('.log-derived-subtitle[data-field="faction"]');
+  if (!factionDisplay) return;
+  factionDisplay.textContent = factionSubtitleText('');
+  const planet = config.planets.find((p) => p.id === planetSelect.value);
+  if (!planet) return;
+  try {
+    const factionId = await fetchFactionIdForPlanetName(planet.name);
+    factionDisplay.textContent = factionSubtitleText(factionId);
+  } catch {
+    factionDisplay.textContent = factionSubtitleText('');
+  }
+});
+
 /* ---------------- Global Missions (read-only, all divers) ---------------- */
 // Shares globalMissions with Global Stats (same fetch, same data) — this is
 // just a per-mission list/detail view of the identical dataset Global Stats
@@ -1888,13 +2084,23 @@ on('log-list', 'click', async (e) => {
 
 function renderGlobalLogFilterSelects() {
   populateSelectOptions(el('global-log-difficulty-filter'), config.difficulties, { allLabel: 'All Difficulties', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('global-log-mission-type-filter'), config.missionTypes, { allLabel: 'All Mission Types', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('global-log-faction-filter'), config.factions, { allLabel: 'All Factions', unknownLabel: 'Unlabeled' });
+  populateSelectOptions(el('global-log-city-type-filter'), config.cityTypes, { allLabel: 'All City / Non-City', unknownLabel: 'Unlabeled' });
   populateSelectOptions(el('global-log-planet-filter'), config.planets, { allLabel: 'All Planets', unknownLabel: 'Unlabeled' });
 }
 
 function globalMissionDetailHtml(m) {
   return `
     <div class="log-view-detail hidden">
+      <div class="row">
+        <span class="denom-label">Mission Type</span>
+        <span class="log-view-value">${esc(missionLabel(m, 'missionTypes', 'missionType'))}</span>
+      </div>
+      <div class="row">
+        <span class="denom-label">City / Non-City</span>
+        <span class="log-view-value">${esc(missionLabel(m, 'cityTypes', 'cityType'))}</span>
+      </div>
       <div class="row">
         <span class="denom-label">All Minor Place Loot Collected</span>
         <span class="log-view-value">${m.allMinorPlacesCollected ? 'Yes' : 'No'}</span>
@@ -1935,7 +2141,9 @@ function globalMissionCardHtml(m) {
         <div class="log-card-tags">
           <span class="log-tag">${esc(SQUAD_MODE_LABELS[m.squadMode || 'unknown'] || m.squadMode)}</span>
           <span class="log-tag">${esc(missionLabel(m, 'difficulties', 'difficulty'))}</span>
+          <span class="log-tag">${esc(missionLabel(m, 'missionTypes', 'missionType'))}</span>
           <span class="log-tag">${esc(missionLabel(m, 'factions', 'faction'))}</span>
+          <span class="log-tag">${esc(missionLabel(m, 'cityTypes', 'cityType'))}</span>
           <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
           ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
           <span class="log-tag">${totalPois(m)} MPOI${totalPois(m) === 1 ? '' : 'S'}</span>
@@ -1991,7 +2199,9 @@ on('global-log-list', 'click', (e) => {
 
 on('global-log-squad-filter', 'change', (e) => { globalLogFilters.squadMode = e.target.value; renderGlobalLogPage(); });
 on('global-log-difficulty-filter', 'change', (e) => { globalLogFilters.difficulty = e.target.value; renderGlobalLogPage(); });
+on('global-log-mission-type-filter', 'change', (e) => { globalLogFilters.missionType = e.target.value; renderGlobalLogPage(); });
 on('global-log-faction-filter', 'change', (e) => { globalLogFilters.faction = e.target.value; renderGlobalLogPage(); });
+on('global-log-city-type-filter', 'change', (e) => { globalLogFilters.cityType = e.target.value; renderGlobalLogPage(); });
 on('global-log-planet-filter', 'change', (e) => { globalLogFilters.planet = e.target.value; renderGlobalLogPage(); });
 on('global-log-poi-filter', 'change', (e) => { globalLogFilters.minPois = parseInt(e.target.value, 10) || 0; renderGlobalLogPage(); });
 
@@ -2036,11 +2246,12 @@ on('close-settings', 'click', closeSettings);
 on('settings-overlay', 'click', closeSettings);
 
 /* ---------------- Mission setup drawer (narrow viewports) ---------------- */
-// Below 1300px, mission setup (squad/difficulty/faction/planet + actions)
-// moves off-canvas behind the hamburger instead of stacking above the POI
-// cards — see the max-width:1299px block in style.css. At >=1300px this is
-// a no-op: #mission-config-btn is CSS-hidden there and .mission-panel is
-// laid out as the sidebar instead, unaffected by the is-open class.
+// Below 1300px, mission setup (squad mode, difficulty, mission type,
+// city/non-city, faction, planet + actions) moves off-canvas behind the
+// hamburger instead of stacking above the POI cards — see the
+// max-width:1299px block in style.css. At >=1300px this is a no-op:
+// #mission-config-btn is CSS-hidden there and .mission-panel is laid out as
+// the sidebar instead, unaffected by the is-open class.
 // Unlike settings/item-popup, .mission-panel itself never gets the
 // .hidden class — it has to stay a normal, always-visible sidebar column
 // at >=1300px, so only its transform-driven .is-open class is toggled here;
@@ -2105,8 +2316,8 @@ on('import-json-input', 'change', async (e) => {
     const text = await file.text();
     const data = JSON.parse(text);
     if (data.config) {
-      config = data.config;
-      saveConfig(config);
+      saveConfig(data.config);
+      config = loadConfig();
     }
     if (Array.isArray(data.history)) {
       state.replaceHistory(data.history);
