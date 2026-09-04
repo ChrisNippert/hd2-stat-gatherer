@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260826h" />
+<link rel="stylesheet" href="css/style.css?v=20260904w" />
 </head>
 <body class="booting">
 <div class="scanlines" aria-hidden="true"></div>
@@ -39,6 +39,10 @@
   <button class="page-nav-btn active" data-page="tally">TALLY</button>
   <button class="page-nav-btn" data-page="stats">STATS</button>
   <button class="page-nav-btn" data-page="log">MISSIONS</button>
+  <button class="page-nav-btn page-nav-party-btn" id="party-nav-btn" type="button" title="Create, join, or manage a party code">
+    <span class="page-nav-party-label">PARTY</span>
+    <span class="page-nav-party-sub">Create / Join</span>
+  </button>
 </nav>
 
 <main id="tally-page">
@@ -76,7 +80,9 @@
     <datalist id="planet-datalist"></datalist>
     <div class="mission-actions">
       <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
+      <button id="party-ready-btn" class="btn hidden" type="button">READY TO SUBMIT</button>
       <button id="clear-mission-btn" class="btn btn-danger" title="Discard the in-progress mission without saving it — for when the tally's garbage and you'd rather start over than keep it">🗑 CLEAR (DON'T SAVE)</button>
+      <div id="mission-ready-status" class="hint mission-action-status hidden"></div>
     </div>
   </section>
 
@@ -87,7 +93,9 @@
     </div>
     <div class="poi-mission-actions">
       <button id="poi-new-mission-btn" class="btn btn-primary">⚑ NEW MISSION — SAVE &amp; RESET</button>
+      <button id="poi-party-ready-btn" class="btn hidden" type="button">READY TO SUBMIT</button>
       <button id="poi-clear-mission-btn" class="btn btn-danger">🗑 CLEAR (DON'T SAVE)</button>
+      <div id="poi-ready-status" class="hint mission-action-status hidden"></div>
     </div>
     <div class="quick-add-bar hidden" id="quick-add-bar"></div>
     <p class="hint">Simplified View: tap +1 FOUND, then pick what dropped from each special loot slot until it's full. Advanced View: item clicks can auto-count the matching POI for you as needed. This is for the bunker/container/pod rewards themselves — not loose samples lying nearby. For Medals, Requisition, and Super Credits, pick the exact amount too.</p>
@@ -188,6 +196,22 @@
     </div>
 
     <div class="settings-group">
+      <h3>Server</h3>
+      <p class="hint">Use the built-in shared server by default, or point this device at your own server like <code>http://localhost:4000</code> or <code>http://192.168.x.x:4000</code>. Clear the field and save to stay offline.</p>
+      <div class="row">
+        <input type="text" id="server-url-input" spellcheck="false" placeholder="https://... or http://localhost:4000" />
+        <button id="apply-server-url" class="btn">Save</button>
+        <button id="use-default-server-url" class="btn">Use Default</button>
+      </div>
+      <p id="server-url-status" class="hint"></p>
+    </div>
+
+    <div class="settings-group">
+      <h3>Party Code</h3>
+      <div id="party-settings"></div>
+    </div>
+
+    <div class="settings-group">
       <h3>Data</h3>
       <div class="row">
         <button id="export-json" class="btn">Export JSON</button>
@@ -198,6 +222,18 @@
         <button id="reset-data" class="btn btn-danger">Reset All Local Data</button>
       </div>
     </div>
+  </div>
+</aside>
+
+<div id="party-overlay" class="settings-overlay hidden"></div>
+<aside id="party-drawer" class="settings-panel party-drawer hidden">
+  <div class="settings-inner">
+    <button id="close-party-panel" class="btn btn-icon close-btn" type="button" data-action="party-close" onclick="window.__sgClosePartyPanel && window.__sgClosePartyPanel()" aria-label="Close party panel">✕</button>
+    <div class="party-drawer-header">
+      <h2>PARTY</h2>
+      <p class="party-drawer-subtitle">Create, join, or manage a shared squad mission code.</p>
+    </div>
+    <div id="party-panel" class="party-panel"></div>
   </div>
 </aside>
 
@@ -212,6 +248,9 @@
 <div id="item-popup" class="item-popup hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
-<script type="module" src="js/main.js?v=20260826h"></script>
+<script>
+setTimeout(() => document.body?.classList.remove('booting'), 1500);
+</script>
+<script type="module" src="js/main.js?v=20260904w"></script>
 </body>
 </html>

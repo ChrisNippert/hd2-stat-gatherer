@@ -10,6 +10,7 @@ const LAST_FACTION_KEY = 'sg_last_faction';
 const LAST_CITY_TYPE_KEY = 'sg_last_city_type';
 const SIMPLIFIED_VIEW_KEY = 'sg_simplified_view';
 const QUICK_GUIDE_SEEN_KEY = 'sg_quick_guide_seen';
+const PARTY_SESSION_KEY = 'sg_party_session';
 
 // crypto.randomUUID() only exists in "secure contexts" — HTTPS, or the
 // `localhost` origin specifically. Testing from a second device by hitting
@@ -91,6 +92,39 @@ export function setLastCityType(id) {
   localStorage.setItem(LAST_CITY_TYPE_KEY, id || '');
 }
 
+export function getPartySession() {
+  const raw = localStorage.getItem(PARTY_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed.code || !parsed.memberToken) return null;
+    return {
+      code: String(parsed.code),
+      memberToken: String(parsed.memberToken),
+      lastSeenFinalizedMissionId: String(parsed.lastSeenFinalizedMissionId || ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function setPartySession(session) {
+  if (!session || !session.code || !session.memberToken) {
+    localStorage.removeItem(PARTY_SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(PARTY_SESSION_KEY, JSON.stringify({
+    code: String(session.code),
+    memberToken: String(session.memberToken),
+    lastSeenFinalizedMissionId: String(session.lastSeenFinalizedMissionId || ''),
+  }));
+}
+
+export function clearPartySession() {
+  localStorage.removeItem(PARTY_SESSION_KEY);
+}
+
 // Lifetime (not per-mission) tally of observed drop amounts per item type:
 // { [itemId]: { [denomination]: observationCount } }
 function blankDenomCounts(config) {
@@ -153,20 +187,30 @@ export function setClientId(id) {
   localStorage.setItem(CLIENT_ID_KEY, id);
 }
 
-// Ships pointed at the public shared instance with no user-facing server
-// setting — the client always uses this built-in endpoint so the URL isn't
-// exposed in the UI.
+// Ships pointed at the public shared instance by default, but Settings can
+// override it per device for localhost/LAN/private-server testing. Only the
+// absence of any saved key means "use the built-in default" — a saved blank
+// string intentionally means "stay offline on this device."
 export const DEFAULT_SERVER_URL = 'https://hd2stats.chrisnippert.com';
 
 export function getServerUrl() {
-  return DEFAULT_SERVER_URL;
+  const raw = localStorage.getItem(SERVER_URL_KEY);
+  return raw === null ? DEFAULT_SERVER_URL : raw.trim();
 }
 
 export function setServerUrl(url) {
-  localStorage.setItem(SERVER_URL_KEY, DEFAULT_SERVER_URL);
+  if (url == null) {
+    localStorage.removeItem(SERVER_URL_KEY);
+    return;
+  }
+  localStorage.setItem(SERVER_URL_KEY, String(url).trim());
 }
 
-function blankMission(config) {
+export function hasServerUrlOverride() {
+  return localStorage.getItem(SERVER_URL_KEY) !== null;
+}
+
+export function createMission(config, overrides = {}) {
   const poiCounts = {};
   const itemDrops = {};
   const denomCounts = blankDenomCounts(config);
@@ -178,16 +222,18 @@ function blankMission(config) {
     });
   });
   return {
-    id: generateId(),
-    startedAt: Date.now(),
-    endedAt: null,
-    allMinorPlacesCollected: false,
-    squadMode: getLastSquadMode(),
-    difficulty: getLastDifficulty() || config.difficulties[0]?.id || '',
-    missionType: getLastMissionType(),
-    planet: getLastPlanet(),
-    faction: getLastFaction(),
-    cityType: getLastCityType() || config.cityTypes[0]?.id || '',
+    id: overrides.id || generateId(),
+    startedAt: overrides.startedAt ?? Date.now(),
+    endedAt: overrides.endedAt ?? null,
+    allMinorPlacesCollected: overrides.allMinorPlacesCollected ?? false,
+    squadMode: overrides.squadMode ?? getLastSquadMode(),
+    difficulty: overrides.difficulty ?? (getLastDifficulty() || config.difficulties[0]?.id || ''),
+    missionType: overrides.missionType ?? getLastMissionType(),
+    planet: overrides.planet ?? getLastPlanet(),
+    faction: overrides.faction ?? getLastFaction(),
+    cityType: overrides.cityType ?? (getLastCityType() || config.cityTypes[0]?.id || ''),
+    partyCode: overrides.partyCode ?? '',
+    partyMissionId: overrides.partyMissionId ?? '',
     poiCounts,
     itemDrops,
     denomCounts,
@@ -207,6 +253,8 @@ function reconcileWithConfig(mission, config) {
   if (mission.planet === undefined) mission.planet = '';
   if (mission.faction === undefined) mission.faction = '';
   if (mission.cityType === undefined) mission.cityType = '';
+  if (mission.partyCode === undefined) mission.partyCode = '';
+  if (mission.partyMissionId === undefined) mission.partyMissionId = '';
   if (!mission.denomCounts || typeof mission.denomCounts !== 'object') mission.denomCounts = {};
   if (!mission.denomPickHistory || typeof mission.denomPickHistory !== 'object') mission.denomPickHistory = {};
   if (!mission.poiLootHistory || typeof mission.poiLootHistory !== 'object') mission.poiLootHistory = {};
@@ -233,7 +281,7 @@ function reconcileWithConfig(mission, config) {
 export function getCurrentMission(config) {
   const raw = localStorage.getItem(CURRENT_MISSION_KEY);
   if (!raw) {
-    const m = blankMission(config);
+    const m = createMission(config);
     saveCurrentMission(m);
     return m;
   }
@@ -261,7 +309,7 @@ export function completeMission(config) {
   const completed = { ...persistedMission, synced: false };
   history.push(completed);
   saveHistory(history);
-  const fresh = blankMission(config);
+  const fresh = createMission(config);
   saveCurrentMission(fresh);
   return { completed, fresh };
 }
@@ -271,7 +319,7 @@ export function completeMission(config) {
 // user would rather start clean than have it counted. Unlike
 // completeMission(), nothing gets pushed to history/synced to the server.
 export function discardCurrentMission(config) {
-  const fresh = blankMission(config);
+  const fresh = createMission(config);
   saveCurrentMission(fresh);
   return fresh;
 }
@@ -287,6 +335,21 @@ export function markSynced(missionId) {
 
 export function replaceHistory(missions) {
   saveHistory(missions);
+}
+
+export function requeueOwnedMissionsForSync(clientId) {
+  const history = getHistory();
+  let changed = false;
+  history.forEach((mission) => {
+    const editable = mission.editable !== false;
+    const ownedBySomeoneElse = mission.clientId && mission.clientId !== clientId;
+    if (!editable || ownedBySomeoneElse) return;
+    if (mission.synced !== false) {
+      mission.synced = false;
+      changed = true;
+    }
+  });
+  if (changed) saveHistory(history);
 }
 
 // Edits an already-saved mission (POI/item counts plus mission labels like
@@ -314,4 +377,5 @@ export function resetAllData() {
   localStorage.removeItem(CURRENT_MISSION_KEY);
   localStorage.removeItem(HISTORY_KEY);
   localStorage.removeItem(QUICK_GUIDE_SEEN_KEY);
+  localStorage.removeItem(PARTY_SESSION_KEY);
 }

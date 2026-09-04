@@ -18,9 +18,6 @@ export function computeStats(missions, config) {
       total: 0,
       pctOfDrops: 0,
       perMission: 0,
-      avgValue: i.value != null ? i.value : 1,
-      totalValue: 0,
-      valuePerMission: 0,
     };
   });
 
@@ -64,8 +61,6 @@ export function computeStats(missions, config) {
     const it = items[i.id];
     it.pctOfDrops = totalItemDrops > 0 ? it.total / totalItemDrops : 0;
     it.perMission = totalMissions > 0 ? it.total / totalMissions : 0;
-    it.totalValue = it.total * it.avgValue;
-    it.valuePerMission = totalMissions > 0 ? it.totalValue / totalMissions : 0;
   });
 
   return {
@@ -134,25 +129,6 @@ export function buildDenomTallyFromMissions(missions) {
     });
   });
   return tally;
-}
-
-// Resource Value's "value per pickup" is no longer a manually-set number —
-// it's calibrated from real Drop Size Tracker observations, preferring the
-// larger/more-robust global (crowd-pooled) sample over the local one, and
-// falling back to the item's seeded default only when nobody has any data
-// for it yet. Returns a new itemTypes array; other fields pass through.
-export function resolveItemValues(itemTypes, localTally, globalTally) {
-  return itemTypes.map((item) => {
-    const globalStats = computeDenomStats(globalTally, item.id);
-    if (globalStats.totalObservations > 0) {
-      return { ...item, value: globalStats.average };
-    }
-    const localStats = computeDenomStats(localTally, item.id);
-    if (localStats.totalObservations > 0) {
-      return { ...item, value: localStats.average };
-    }
-    return item;
-  });
 }
 
 export function formatDuration(ms) {

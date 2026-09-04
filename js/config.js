@@ -3,13 +3,9 @@ const CONFIG_KEY = 'sg_config';
 export const FALLBACK_ICON = '⭐';
 export const FALLBACK_VALUE = 1;
 
-// Average resource value per single pickup — only used as a bootstrap
-// fallback before any Drop Size Tracker data exists; once observations come
-// in (locally or pooled from the server), stats.resolveItemValues() computes
-// the real average instead and this seed stops mattering. Super Credits
-// average 10.9 (10 base, 1% chance of a 100 bonus drop); medals vary 1-3 per
-// pickup, averaged to 2. Common/Rare Samples' true per-pickup amount isn't
-// asserted here — 1 is just a neutral starting point pending real data.
+// Legacy per-item value seeds kept only for backwards compatibility with
+// older saved configs/imports. Stats no longer renders the old Resource
+// Value section, so these are not surfaced in the UI anymore.
 const DEFAULT_ITEM_VALUES = {
   medals: 2,
   requisition: 100,
@@ -411,9 +407,9 @@ const DEFAULT_PLANETS = [
 
 export const DEFAULT_CONFIG = {
   poiTypes: [
-    { id: 'two_man_bunker', name: 'Bunker', slots: 3 },
-    { id: 'explodable_bunker', name: 'Container', slots: 2 },
     { id: 'loot_pod', name: 'Loot Pod', slots: 1 },
+    { id: 'explodable_bunker', name: 'Container', slots: 2 },
+    { id: 'two_man_bunker', name: 'Bunker', slots: 3 },
   ],
   itemTypes: [
     { id: 'medals', name: 'Medals', icon: 'assets/icons/medals.webp', value: DEFAULT_ITEM_VALUES.medals, denominations: DEFAULT_DENOMINATIONS.medals },
@@ -473,6 +469,12 @@ export function loadConfig() {
       parsed[key].forEach((entry) => {
         if (namesById.has(entry.id)) entry.name = namesById.get(entry.id);
       });
+    });
+    // Fixed shipped taxonomies should also keep the app's current order, not
+    // whichever order an older cached config happened to save them in.
+    ['poiTypes', 'itemTypes', 'difficulties', 'factions', 'missionTypes', 'cityTypes', 'planets'].forEach((key) => {
+      const byId = new Map(parsed[key].map((entry) => [entry.id, entry]));
+      parsed[key] = DEFAULT_CONFIG[key].map((entry) => byId.get(entry.id) || structuredClone(entry));
     });
     return parsed;
   } catch {

@@ -34,8 +34,8 @@
   --danger: #ff4433;
   --success: #4caf50;
   --border-color: #3a4353;
-  --font-ui: 'Chakra Petch', 'FS Sinclair Local', 'FS Sinclair', 'Swiss 721', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-display: 'Chakra Petch', 'Swiss 721 Local', 'Swiss 721', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-ui: 'Chakra Petch', 'FS Sinclair Local', 'FS Sinclair', 'Swiss 721 Local', 'Swiss 721', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-display: 'Chakra Petch', 'Swiss 721 Local', 'Swiss 721', 'FS Sinclair Local', 'FS Sinclair', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --clip: 10px;
   --tap: 48px;
 
@@ -246,9 +246,47 @@ h1, h2, h3, h4 {
   letter-spacing: 0.08em;
   cursor: pointer;
   touch-action: manipulation;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .page-nav-btn.active { color: var(--se-yellow); border-bottom-color: var(--se-yellow); }
+
+.page-nav-party-btn {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  padding-left: 16px;
+  padding-right: 16px;
+  min-width: 132px;
+  background: rgba(19, 25, 37, 0.45);
+}
+
+.page-nav-party-btn.has-party {
+  color: var(--se-yellow);
+}
+
+.page-nav-party-btn.party-open,
+.page-nav-party-btn.has-party {
+  border-bottom-color: var(--se-yellow);
+}
+
+.page-nav-party-label {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.page-nav-party-sub {
+  font-size: 11px;
+  line-height: 1.1;
+  color: var(--text-dim);
+}
+
+.page-nav-party-btn.has-party .page-nav-party-sub {
+  color: var(--success);
+}
 
 /* ---------- Buttons ---------- */
 .btn {
@@ -271,6 +309,31 @@ h1, h2, h3, h4 {
 
 .btn:hover { background: #1d2430; --frame-color: var(--se-yellow-dim); }
 .btn:active { transform: scale(0.96); }
+.btn:disabled,
+.quick-add-btn:disabled,
+.item-tile:disabled,
+.page-nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn:disabled:hover,
+.page-nav-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.quick-add-btn:disabled:hover,
+.item-tile:disabled:hover {
+  background: var(--bg-panel-alt);
+  color: var(--text-light);
+}
+
+.btn:disabled:hover {
+  background: var(--bg-panel-alt);
+  color: var(--text-light);
+}
 
 .btn-icon {
   background: transparent;
@@ -455,11 +518,299 @@ main {
   display: none;
   gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .poi-mission-actions .btn {
   flex: 1 1 0;
   min-width: 0;
+}
+
+.mission-action-status {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.party-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.party-lead {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.party-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  position: relative;
+}
+
+.party-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 212, 0, 0.18), rgba(58, 67, 83, 0.42) 55%, transparent);
+}
+
+.party-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.party-section-title {
+  font-size: 18px;
+  color: var(--text-light);
+  margin: 0;
+}
+
+.party-role-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.party-warning {
+  margin: 0 0 12px;
+  color: #ffbf66;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.party-section-summary {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.party-section-summary::before,
+.party-section-emphasis::before {
+  display: none;
+}
+
+.party-section-emphasis {
+  margin-top: 20px;
+  padding: 16px;
+  border-top: none;
+  background: rgba(19, 26, 38, 0.82);
+  clip-path: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+
+.party-section-emphasis .party-section-title {
+  color: var(--se-yellow);
+}
+
+.party-section-join .party-hint {
+  margin-bottom: 14px;
+}
+
+.party-section-join .party-join-inline {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.party-section-join .party-section-btn,
+.party-section-join .party-join-code-input {
+  width: 100%;
+}
+
+.party-section-btn {
+  width: 100%;
+}
+
+.party-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.party-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--se-yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.party-subtitle,
+.party-member-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.party-hint {
+  margin: 0 0 12px;
+}
+
+.party-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.party-panel-actions .btn {
+  flex: 1 1 180px;
+}
+
+.party-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.party-join-inline {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.party-join-inline .btn {
+  flex: 0 0 auto;
+}
+
+.party-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.party-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(90deg, rgba(255, 212, 0, 0.05), rgba(13, 17, 24, 0.95) 22%, rgba(13, 17, 24, 0.98));
+  border: none;
+}
+
+.party-member-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.party-member-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.party-member-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.party-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.party-chip.ready {
+  color: var(--success);
+  background: rgba(76, 175, 80, 0.14);
+}
+
+.party-kick-btn {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.party-copy-btn {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.party-join-code-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-input);
+  border: 1px solid rgba(255, 212, 0, 0.16);
+  color: var(--text-light);
+  padding: 10px 12px;
+  min-height: var(--tap);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  text-transform: uppercase;
+}
+
+.party-join-code-input:focus,
+.party-join-code-input:focus-visible {
+  outline: none;
+  border-color: rgba(255, 212, 0, 0.7);
+  box-shadow: 0 0 0 2px rgba(255, 212, 0, 0.12);
+}
+
+.party-settings-row {
+  align-items: stretch;
+}
+
+.party-drawer {
+  width: min(420px, 100%);
+}
+
+.party-drawer .settings-inner {
+  padding-top: 18px;
+}
+
+.party-drawer-header {
+  padding-right: 56px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  position: relative;
+}
+
+.party-drawer-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 212, 0, 0.24), rgba(58, 67, 83, 0.36) 52%, transparent);
+}
+
+.party-drawer-header h2 {
+  margin: 0 0 4px;
+}
+
+.party-drawer-subtitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-dim);
 }
 
 /* ---------- Mission panel ---------- */
@@ -925,6 +1276,9 @@ main {
   .toggle-row-header .toggle-label { font-size: 12px; }
   .page-nav { padding: 0 18px 0 20px; }
   .page-nav-btn { padding: 8px 14px; min-height: 40px; font-size: 14px; }
+  .page-nav-party-btn { min-width: 116px; padding-left: 10px; padding-right: 10px; }
+  .page-nav-party-label { font-size: 12px; }
+  .page-nav-party-sub { font-size: 10px; }
 
   main { padding: 10px; gap: 10px; }
   #poi-panel { padding: 12px; }
@@ -935,6 +1289,27 @@ main {
   .mission-check span { font-size: 14px; }
   .poi-mission-actions { margin-bottom: 10px; }
   .poi-mission-actions .btn { font-size: 14px; padding: 10px 8px; min-height: 42px; }
+  .party-panel { gap: 0; }
+  .party-lead { font-size: 14px; }
+  .party-section { margin-top: 12px; padding-top: 12px; }
+  .party-section-emphasis { margin-top: 16px; padding: 12px; }
+  .party-section-title { font-size: 16px; }
+  .party-title { font-size: 17px; }
+  .party-subtitle,
+  .party-member-sub { font-size: 12px; }
+  .party-panel-actions { gap: 6px; }
+  .party-panel-actions .btn,
+  .party-settings-row .btn { font-size: 14px; padding: 10px 8px; min-height: 42px; }
+  .party-copy-btn { min-height: 32px; padding: 6px 8px; font-size: 12px; }
+  .party-member-row { padding: 8px 10px; gap: 8px; }
+  .party-member-name { font-size: 14px; }
+  .party-chip { min-height: 24px; font-size: 10px; padding: 3px 6px; }
+  .party-kick-btn { font-size: 12px; min-height: 32px; padding: 6px 8px; }
+  .party-join-code-input { font-size: 14px; min-height: 42px; }
+  .party-join-inline { flex-direction: column; }
+  .party-drawer .settings-inner { padding-top: 14px; }
+  .party-drawer-header { margin-bottom: 12px; padding-bottom: 10px; }
+  .party-drawer-subtitle { font-size: 13px; }
   .submit-popup { width: min(360px, 94vw); padding: 16px; }
   .submit-popup h3 { font-size: 22px; }
   .quick-add-bar { padding: 8px; margin: -12px -12px 12px; }
@@ -1021,6 +1396,18 @@ main {
   .header-controls { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 6px; }
   .client-badge { padding: 4px 8px; }
   .client-badge .label { display: none; }
+  .page-nav { align-items: stretch; }
+  .page-nav-party-btn {
+    min-width: 88px;
+    padding-left: 8px;
+    padding-right: 8px;
+    align-items: center;
+  }
+  .page-nav-party-sub { display: none; }
+  .party-head-actions { justify-content: flex-start; }
+  .party-panel-head,
+  .party-member-row { flex-direction: column; align-items: stretch; }
+  .party-member-badges { justify-content: flex-start; }
   .terminal-badge {
     flex: 1 1 auto;
     min-width: 0;

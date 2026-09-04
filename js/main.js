@@ -1,12 +1,27 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260826h';
-import * as state from './state.js?v=20260826h';
-import { computeStats, computeDenomStats, filterMissions, resolveItemValues, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260826h';
-import { pingServer, submitMission, fetchMissions, deleteMissionRemote } from './api.js?v=20260826h';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260904w';
+import * as state from './state.js?v=20260904w';
+import { computeStats, computeDenomStats, filterMissions, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260904w';
+import {
+  pingServer,
+  submitMission,
+  fetchMissions,
+  deleteMissionRemote,
+  createParty,
+  joinParty,
+  fetchParty,
+  updatePartyMission,
+  setPartyReady,
+  kickPartyMember,
+  leaveParty,
+  finalizeParty,
+} from './api.js?v=20260904w';
 
 let config = loadConfig();
 let clientId = state.getClientId();
 let serverUrl = state.getServerUrl();
 let currentMission = state.getCurrentMission(config);
+let partySession = state.getPartySession();
+let partyState = null;
 let globalMissions = null; // lazily fetched
 let statsFilters = { squadMode: 'all', difficulty: 'all', missionType: 'all', faction: 'all', cityType: 'all', planet: 'all' };
 // minPois: 0 means "any" (unfiltered) — matches how squadMode/difficulty/etc
@@ -23,6 +38,12 @@ let expandedPoiCards = new Set();
 let quickGuide = null;
 let quickGuideTrackTimer = null;
 let planetFactionLookupToken = 0;
+let partyRefreshPromise = null;
+let partyRefreshInterval = null;
+let partyJoinCodeDraft = '';
+let partyPanelOpen = false;
+let partyApiUnsupported = false;
+const PARTY_REFRESH_INTERVAL_MS = 3000;
 
 const el = (id) => document.getElementById(id);
 
@@ -207,9 +228,20 @@ function buildQuickGuideSteps() {
         : 'Your squad mode, difficulty, mission type, city/non-city, faction, and planet live here for the current run.',
     },
     {
+      target: () => el('party-nav-btn'),
+      title: 'Party Codes',
+      body: isInParty()
+        ? 'Open this button for your live party control center: it shows the code, who is ready, and lets the host manage the squad while the main mission button handles ready/finalize actions.'
+        : 'Squad play starts here now. Open this button to create a code, share it, or join one from another diver — everyone tallies locally, then the host merges the whole party into one mission at the end.',
+    },
+    {
       target: currentGuideMissionControlTarget,
       title: 'Mission Actions',
-      body: 'Save & Reset finishes the current mission and starts a fresh one. Clear throws away a bad in-progress tally without saving it.',
+      body: isInParty()
+        ? (isPartyHost()
+          ? 'As host, Finalize & Reset merges every ready party member into one saved mission, then starts the next shared round. Clear only resets your own local tally.'
+          : 'In a party, this main button becomes Ready to Submit for members, while Clear still only resets your own local tally without ending the shared round.')
+        : 'Save & Reset finishes the current mission and starts a fresh one. Clear throws away a bad in-progress tally without saving it.',
     },
     {
       target: currentGuideAddTarget,
@@ -224,24 +256,24 @@ function buildQuickGuideSteps() {
       body: 'Each Minor Place has a slot count. These POIs can spawn in slightly different formations, but they still fall under one of the three tracked types here. Log the special bunker/container/pod rewards from those slots — not loose samples around the area — so the stats stay tied to the right container type.',
     },
     {
-      target: () => guidePoiTarget('two_man_bunker'),
-      title: 'Bunker Example',
-      body: 'Bunkers can vary visually, and some lookalikes are not actually openable. Use this as a recognition aid for the kind of special loot POI the app means.',
+      target: () => guidePoiTarget('loot_pod'),
+      title: 'Loot Pod Example',
+      body: 'Loot pods can vary around the edges too, but they still count as the same tracked Loot Pod type when the special reward pod is what you found.',
       gallery: [
         {
-          src: 'assets/guide/bunker-ref-1.png',
-          alt: 'Bunker minimap example',
+          src: 'assets/guide/loot-pod-ref-1.png',
+          alt: 'Loot pod minimap example',
           caption: 'Minimap',
         },
         {
-          src: 'assets/guide/bunker-ref-2.png',
-          alt: 'Bunker exterior example',
-          caption: 'What it can look like',
+          src: 'assets/guide/loot-pod-ref-2.png',
+          alt: 'Loot pod exterior example',
+          caption: 'Pod outside',
         },
         {
-          src: 'assets/guide/bunker-ref-3.png',
-          alt: 'Bunker interior loot example',
-          caption: 'Loot inside',
+          src: 'assets/guide/loot-pod-ref-3.png',
+          alt: 'Loot pod opened example',
+          caption: 'Pod inside',
         },
       ],
     },
@@ -268,24 +300,24 @@ function buildQuickGuideSteps() {
       ],
     },
     {
-      target: () => guidePoiTarget('loot_pod'),
-      title: 'Loot Pod Example',
-      body: 'Loot pods can vary around the edges too, but they still count as the same tracked Loot Pod type when the special reward pod is what you found.',
+      target: () => guidePoiTarget('two_man_bunker'),
+      title: 'Bunker Example',
+      body: 'Bunkers can vary visually, and some lookalikes are not actually openable. Use this as a recognition aid for the kind of special loot POI the app means.',
       gallery: [
         {
-          src: 'assets/guide/loot-pod-ref-1.png',
-          alt: 'Loot pod minimap example',
+          src: 'assets/guide/bunker-ref-1.png',
+          alt: 'Bunker minimap example',
           caption: 'Minimap',
         },
         {
-          src: 'assets/guide/loot-pod-ref-2.png',
-          alt: 'Loot pod exterior example',
-          caption: 'Pod outside',
+          src: 'assets/guide/bunker-ref-2.png',
+          alt: 'Bunker exterior example',
+          caption: 'What it can look like',
         },
         {
-          src: 'assets/guide/loot-pod-ref-3.png',
-          alt: 'Loot pod opened example',
-          caption: 'Pod inside',
+          src: 'assets/guide/bunker-ref-3.png',
+          alt: 'Bunker interior loot example',
+          caption: 'Loot inside',
         },
       ],
     },
@@ -309,7 +341,9 @@ function buildQuickGuideSteps() {
     {
       target: currentGuideMissionControlTarget,
       title: 'Final Submission Prompt',
-      body: 'When you save a mission, we ask one last question about whether you think you picked up everything on the map. That keeps Minor Place frequency stats from being skewed by incomplete clears.',
+      body: isInParty()
+        ? 'When the host finalizes a party round, we ask one last question about whether the squad thinks it picked up all the special Minor Place loot on the map. That keeps Minor Place frequency stats from being skewed by incomplete clears.'
+        : 'When you save a mission, we ask one last question about whether you think you picked up everything on the map. That keeps Minor Place frequency stats from being skewed by incomplete clears.',
     },
     {
       target: () => document.querySelector('.brand'),
@@ -580,6 +614,43 @@ function renderClientBadge() {
   el('client-id-input').value = clientId;
 }
 
+function renderServerSettings() {
+  const input = el('server-url-input');
+  const status = el('server-url-status');
+  if (input) input.value = serverUrl;
+  if (!status) return;
+  if (!serverUrl) {
+    status.textContent = 'Server sync is off for this device. Missions stay local until you save a server URL again.';
+  } else if (!state.hasServerUrlOverride()) {
+    status.textContent = `Using the built-in shared server: ${serverUrl}`;
+  } else {
+    status.textContent = `Using a custom server override: ${serverUrl}`;
+  }
+}
+
+function normalizeServerUrlInput(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return { value: '' };
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { error: 'Enter a full server URL like http://192.168.1.20:4000.' };
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { error: 'Server URLs must start with http:// or https://.' };
+  }
+  return { value: value.replace(/\/+$/, ''), parsed };
+}
+
+function isMixedContentBlockedServerUrl(parsedUrl) {
+  return !!parsedUrl
+    && window.location.protocol === 'https:'
+    && parsedUrl.protocol === 'http:'
+    && parsedUrl.hostname !== 'localhost'
+    && parsedUrl.hostname !== '127.0.0.1';
+}
+
 function setSyncStatus(text, cls = '') {
   const s = el('terminal-badge');
   if (!s) return;
@@ -588,17 +659,688 @@ function setSyncStatus(text, cls = '') {
   refreshQuickGuideIfOpen();
 }
 
+/* ---------------- Party sessions ---------------- */
+
+function isInParty() {
+  return !!(partySession && partySession.code && partySession.memberToken);
+}
+
+function isPartyHost() {
+  return !!partyState?.me?.isHost;
+}
+
+function isPartyReady() {
+  return !!partyState?.me?.isReady;
+}
+
+function partyForcesMultiplayer(party = partyState) {
+  return !!party && Number(party.totalMembers || 0) > 1;
+}
+
+function effectivePartySquadMode(mode = '', party = partyState) {
+  return partyForcesMultiplayer(party) ? 'multiplayer' : (mode || '');
+}
+
+function isPartyTallyLocked() {
+  return isInParty() && isPartyReady();
+}
+
+function partyReadyTargetCount(party = partyState) {
+  return Math.max(0, Number(party?.totalMembers || 0) - 1);
+}
+
+function partyReadyCountLabel(party = partyState, { compact = false } = {}) {
+  if (!party) return '';
+  const target = partyReadyTargetCount(party);
+  if (target === 0) return compact ? `${party.code} • Host only` : 'Host only — no squadmates need to submit yet.';
+  return compact
+    ? `${party.code} • ${party.readyCount}/${target} ready`
+    : `${party.readyCount} / ${target} ${target === 1 ? 'squadmate' : 'squadmates'} ready`;
+}
+
+function allPartyMembersReady() {
+  return !!partyState && partyState.readyCount >= partyReadyTargetCount();
+}
+
+function partyDisplayName() {
+  return `Diver ${clientId.slice(0, 8)}`;
+}
+
+function partyUnsupportedMessage() {
+  return 'This server does not support party codes yet. Deploy the updated server backend first.';
+}
+
+function normalizePartyCodeInput(raw) {
+  return String(raw || '').trim().toUpperCase();
+}
+
+function currentMissionMeta() {
+  return {
+    squadMode: effectivePartySquadMode(currentMission.squadMode || ''),
+    difficulty: currentMission.difficulty || '',
+    missionType: currentMission.missionType || '',
+    faction: currentMission.faction || '',
+    planet: currentMission.planet || '',
+    cityType: currentMission.cityType || '',
+  };
+}
+
+function partyMemberRoleLabel() {
+  return isPartyHost() ? 'HOST' : 'MEMBER';
+}
+
+function missionForPartyRound(party) {
+  return state.createMission(config, {
+    id: party.currentMissionId,
+    partyCode: party.code,
+    partyMissionId: party.currentMissionId,
+    startedAt: party.currentStartedAt,
+    squadMode: effectivePartySquadMode(party.missionMeta?.squadMode || '', party),
+    difficulty: party.missionMeta?.difficulty || '',
+    missionType: party.missionMeta?.missionType || '',
+    faction: party.missionMeta?.faction || '',
+    planet: party.missionMeta?.planet || '',
+    cityType: party.missionMeta?.cityType || '',
+  });
+}
+
+function rememberPartySession(extra = {}) {
+  if (!partySession) return;
+  partySession = { ...partySession, ...extra };
+  state.setPartySession(partySession);
+}
+
+function applyPartyMetaToCurrentMission(meta, { persist = true, party = partyState } = {}) {
+  currentMission.squadMode = effectivePartySquadMode(meta?.squadMode || '', party);
+  currentMission.difficulty = meta?.difficulty || '';
+  currentMission.missionType = meta?.missionType || '';
+  currentMission.faction = meta?.faction || '';
+  currentMission.planet = meta?.planet || '';
+  currentMission.cityType = meta?.cityType || '';
+  state.setLastSquadMode(currentMission.squadMode);
+  state.setLastDifficulty(currentMission.difficulty);
+  state.setLastMissionType(currentMission.missionType);
+  state.setLastFaction(currentMission.faction);
+  state.setLastPlanet(currentMission.planet);
+  state.setLastCityType(currentMission.cityType);
+  if (persist) state.saveCurrentMission(currentMission);
+}
+
+function adoptPartyRound(party) {
+  const roundChanged = currentMission.partyMissionId !== party.currentMissionId || currentMission.partyCode !== party.code;
+  if (roundChanged) {
+    currentMission = missionForPartyRound(party);
+    expandedPoiCards = new Set();
+    closeItemPopup();
+  } else {
+    currentMission.id = party.currentMissionId;
+    currentMission.partyMissionId = party.currentMissionId;
+    currentMission.partyCode = party.code;
+    currentMission.startedAt = party.currentStartedAt;
+    applyPartyMetaToCurrentMission(party.missionMeta, { persist: false });
+  }
+  state.saveCurrentMission(currentMission);
+}
+
+function resetCurrentMissionForActiveContext() {
+  currentMission = isInParty() && partyState
+    ? missionForPartyRound(partyState)
+    : state.createMission(config);
+  state.saveCurrentMission(currentMission);
+}
+
+function applyPartyState(party) {
+  partyState = party;
+  adoptPartyRound(party);
+  if (isPartyTallyLocked()) closeItemPopup();
+  renderSquadModeSelect();
+  renderMissionMetaSelects();
+  renderMissionActionButtons();
+  renderPartyPanel();
+  renderPartySettings();
+  renderQuickAddBar();
+  renderPoiGrid();
+  renderStats();
+  if (isPartyHost() && partyForcesMultiplayer(party) && party.missionMeta?.squadMode !== 'multiplayer') {
+    syncPartyMissionMeta();
+  }
+}
+
+function renderMissionActionButtons() {
+  const primaryButtons = [el('new-mission-btn'), el('poi-new-mission-btn')].filter(Boolean);
+  const readyButtons = [el('party-ready-btn'), el('poi-party-ready-btn')].filter(Boolean);
+  const clearButtons = [el('clear-mission-btn'), el('poi-clear-mission-btn')].filter(Boolean);
+  const readyStatusNodes = [el('mission-ready-status'), el('poi-ready-status')].filter(Boolean);
+  const setReadyStatus = (text = '') => {
+    readyStatusNodes.forEach((node) => {
+      node.textContent = text;
+      node.classList.toggle('hidden', !text);
+    });
+  };
+  if (isInParty()) {
+    if (!partyState) {
+      readyButtons.forEach((btn) => {
+        btn.classList.add('hidden');
+        btn.classList.remove('btn-primary');
+        btn.disabled = true;
+        btn.title = '';
+      });
+      primaryButtons.forEach((btn) => {
+        btn.textContent = '⌛ REJOINING PARTY…';
+        btn.classList.remove('hidden');
+        btn.classList.remove('btn-primary');
+        btn.disabled = true;
+        btn.title = 'Waiting to reconnect to the live party before mission actions unlock.';
+      });
+      clearButtons.forEach((btn) => {
+        btn.textContent = '🗑 CLEAR MY TALLY';
+        btn.classList.remove('hidden');
+        btn.disabled = false;
+        btn.title = 'Reset only your local contribution for the current party mission.';
+      });
+      setReadyStatus(`Party ${partySession.code} — reconnecting to the live ready count…`);
+      return;
+    }
+    const host = isPartyHost();
+    primaryButtons.forEach((btn) => {
+      btn.classList.remove('hidden');
+      btn.disabled = false;
+      if (host) {
+        btn.textContent = '⚑ FINALIZE PARTY MISSION';
+        btn.classList.add('btn-primary');
+        btn.title = 'Merge every ready party member tally into one mission, save it, and start the next party mission round.';
+      } else {
+        btn.textContent = isPartyReady() ? 'MARK NOT READY' : 'READY TO SUBMIT';
+        btn.classList.toggle('btn-primary', !isPartyReady());
+        btn.title = isPartyReady()
+          ? 'Pull your tally back out of the ready pool so you can keep editing it.'
+          : 'Submit your local tally to the host for the current shared mission round.';
+      }
+    });
+    readyButtons.forEach((btn) => {
+      if (host) {
+        btn.classList.remove('hidden');
+        btn.textContent = isPartyReady() ? 'MARK NOT READY' : 'READY TO SUBMIT';
+        btn.classList.toggle('btn-primary', !isPartyReady());
+        btn.disabled = false;
+        btn.title = isPartyReady()
+          ? 'Unlock your own tally and mission labels for more edits.'
+          : 'Submit and lock your own tally while keeping Finalize available.';
+      } else {
+        btn.classList.add('hidden');
+        btn.classList.remove('btn-primary');
+        btn.disabled = true;
+        btn.title = '';
+      }
+    });
+    clearButtons.forEach((btn) => {
+      btn.textContent = '🗑 CLEAR MY TALLY';
+      btn.classList.remove('hidden');
+      btn.disabled = isPartyTallyLocked();
+      btn.title = isPartyTallyLocked()
+        ? 'Mark not ready before editing or clearing your tally.'
+        : 'Reset only your local contribution for the current party mission.';
+    });
+    const readyText = partyReadyCountLabel(partyState);
+    const hostStatus = isPartyTallyLocked()
+      ? (allPartyMembersReady() ? 'your tally is locked — finalize now or mark not ready to edit again.' : 'your tally is locked until you mark not ready.')
+      : (partyReadyTargetCount(partyState) === 0 ? 'you can finalize any time.' : 'finalize from here once everyone is in.');
+    setReadyStatus(host
+      ? `${readyText} — ${hostStatus}`
+      : `${readyText} — ${isPartyTallyLocked() ? 'your tally is locked until you mark not ready.' : 'use the main button here when your tally is ready.'}`);
+    return;
+  }
+  readyButtons.forEach((btn) => {
+    btn.classList.add('hidden');
+    btn.classList.remove('btn-primary');
+    btn.disabled = true;
+    btn.title = '';
+  });
+  primaryButtons.forEach((btn) => {
+    btn.textContent = '⚑ NEW MISSION — SAVE & RESET';
+    btn.classList.remove('hidden');
+    btn.classList.add('btn-primary');
+    btn.disabled = false;
+    btn.title = '';
+  });
+  clearButtons.forEach((btn) => {
+    btn.textContent = '🗑 CLEAR (DON\'T SAVE)';
+    btn.classList.remove('hidden');
+    btn.disabled = false;
+    btn.title = 'Discard the in-progress mission without saving it — for when the tally\'s garbage and you\'d rather start over than keep it';
+  });
+  setReadyStatus('');
+}
+
+function renderPartyNavButton() {
+  const btn = el('party-nav-btn');
+  if (!btn) return;
+  const drawerOpen = partyPanelOpen;
+  btn.classList.toggle('has-party', isInParty());
+  btn.classList.toggle('party-open', !!drawerOpen);
+  if (!isInParty()) {
+    btn.title = partyApiUnsupported ? partyUnsupportedMessage() : 'Create, join, or manage a party code';
+    btn.innerHTML = `
+      <span class="page-nav-party-label">PARTY</span>
+      <span class="page-nav-party-sub">${partyApiUnsupported ? 'Server update needed' : 'Create / Join'}</span>
+    `;
+    return;
+  }
+  const sub = partyState
+    ? partyReadyCountLabel(partyState, { compact: true })
+    : `${partySession.code} • Rejoining…`;
+  btn.title = partyState
+    ? `Party ${partyState.code} — ${partyReadyCountLabel(partyState)}`
+    : `Rejoining party ${partySession.code}`;
+  btn.innerHTML = `
+    <span class="page-nav-party-label">PARTY</span>
+    <span class="page-nav-party-sub">${esc(sub)}</span>
+  `;
+}
+
+function partyMemberRowHtml(member) {
+  return `
+    <div class="party-member-row">
+      <div class="party-member-main">
+        <span class="party-member-name">${esc(member.displayName)}</span>
+        <span class="party-member-sub">Diver ${esc(member.clientIdShort || 'unknown')}</span>
+      </div>
+      <div class="party-member-badges">
+        ${member.isHost ? '<span class="party-chip">HOST</span>' : ''}
+        ${member.isReady ? `<span class="party-chip ready">READY</span>` : (member.isHost ? '' : '<span class="party-chip">NOT READY</span>')}
+        ${isPartyHost() && !member.isHost ? `<button class="btn btn-danger party-kick-btn" type="button" data-action="party-kick" data-member="${esc(member.memberId)}">Kick</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderPartyPanel() {
+  const panel = el('party-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  if (!isInParty()) {
+    panel.innerHTML = `
+      <p class="party-lead">Turn a squad run into one shared mission without passing around Diver IDs.</p>
+      <div class="party-section">
+        <div class="party-section-head">
+          <h3 class="party-section-title">Create a Party</h3>
+          <span class="party-role-label">Host flow</span>
+        </div>
+        ${partyApiUnsupported ? `<p class="party-warning">${esc(partyUnsupportedMessage())}</p>` : ''}
+        <p class="hint party-hint">Start the room, own the mission labels, and finalize the merged mission once everyone is ready.</p>
+        <button class="btn btn-primary party-section-btn" type="button" data-action="party-create"${partyApiUnsupported ? ' disabled' : ''}>Create Party</button>
+      </div>
+      <div class="party-section party-section-emphasis party-section-join">
+        <div class="party-section-head">
+          <h3 class="party-section-title">Join a Party</h3>
+          <span class="party-role-label">Member flow</span>
+        </div>
+        <p class="hint party-hint">Paste the 6-character code from the host, tally your own contribution, then hit Ready to Submit when you're done.</p>
+        <div class="party-join-inline">
+          <input type="text" class="party-join-code-input" data-role="party-join-code" value="${esc(partyJoinCodeDraft)}" spellcheck="false" autocomplete="off" maxlength="8" placeholder="Party Code"${partyApiUnsupported ? ' disabled' : ''} />
+          <button class="btn party-section-btn" type="button" data-action="party-join"${partyApiUnsupported ? ' disabled' : ''}>Join Party</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  if (!partyState) {
+    panel.innerHTML = `
+      <p class="party-lead">Rejoining party ${esc(partySession.code)}…</p>
+      <div class="party-section">
+        <p class="hint party-hint">Loading the current ready count, mission round, and member list.</p>
+      </div>
+    `;
+    return;
+  }
+  const host = isPartyHost();
+  const leaveLabel = host ? 'End Party' : 'Leave Party';
+  panel.innerHTML = `
+    <div class="party-section party-section-summary">
+      <div class="party-panel-head">
+        <div>
+          <div class="party-title">Party ${esc(partyState.code)}</div>
+          <div class="party-subtitle">${esc(partyMemberRoleLabel())} • ${esc(partyReadyCountLabel(partyState))}</div>
+        </div>
+        <div class="party-head-actions">
+          <span class="party-chip">${esc(partyMemberRoleLabel())}</span>
+          <button class="btn party-copy-btn" type="button" data-action="party-copy-code">Copy Code</button>
+        </div>
+      </div>
+      <p class="hint party-hint">${host ? 'You own the mission labels here, while the main mission button finalizes each round once everyone is ready.' : 'The host owns the mission labels. Your tally stays local until you use the main Ready to Submit button on the tally screen.'}</p>
+      <div class="party-panel-actions">
+        <button class="btn btn-danger" type="button" data-action="party-leave">${esc(leaveLabel)}</button>
+      </div>
+    </div>
+    <div class="party-section">
+      <h3 class="party-section-title">Party Members</h3>
+      <div class="party-member-list">
+        ${partyState.members.map(partyMemberRowHtml).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderPartySettings() {
+  const container = el('party-settings');
+  if (!container) return;
+  if (!isInParty()) {
+    container.innerHTML = `
+      <p class="hint">Use the PARTY button on the page-nav bar for the front-and-center version of this flow.</p>
+      ${partyApiUnsupported ? `<p class="party-warning">${esc(partyUnsupportedMessage())}</p>` : ''}
+      <div class="row party-settings-row">
+        <button class="btn btn-primary" type="button" data-action="party-create"${partyApiUnsupported ? ' disabled' : ''}>Create Party</button>
+      </div>
+      <div class="row party-settings-row">
+        <input type="text" class="party-join-code-input" data-role="party-join-code" value="${esc(partyJoinCodeDraft)}" spellcheck="false" autocomplete="off" maxlength="8" placeholder="Party Code"${partyApiUnsupported ? ' disabled' : ''} />
+        <button class="btn" type="button" data-action="party-join"${partyApiUnsupported ? ' disabled' : ''}>Join</button>
+      </div>
+    `;
+    return;
+  }
+  if (!partyState) {
+    container.innerHTML = `<p class="hint">Rejoining party ${esc(partySession.code)}…</p>`;
+    return;
+  }
+  const host = isPartyHost();
+  container.innerHTML = `
+    <p class="hint">Party ${esc(partyState.code)} • ${esc(partyMemberRoleLabel())} • ${esc(partyReadyCountLabel(partyState))}</p>
+    <div class="row party-settings-row">
+      <button class="btn" type="button" data-action="party-copy-code">Copy Code</button>
+    </div>
+    <div class="row party-settings-row">
+      <button class="btn btn-danger" type="button" data-action="party-leave">${host ? 'End Party' : 'Leave Party'}</button>
+    </div>
+  `;
+}
+
+function renderPartyUi() {
+  syncPartyRefreshLoop();
+  renderPartyNavButton();
+  renderMissionActionButtons();
+  renderPartyPanel();
+  renderPartySettings();
+}
+
+function syncPartyRefreshLoop() {
+  const shouldRun = !!serverUrl && isInParty();
+  if (!shouldRun) {
+    if (partyRefreshInterval) {
+      clearInterval(partyRefreshInterval);
+      partyRefreshInterval = null;
+    }
+    return;
+  }
+  if (partyRefreshInterval) return;
+  partyRefreshInterval = setInterval(() => {
+    if (document.hidden) return;
+    refreshPartyState({ quiet: true }).catch((err) => console.error('Stat Gatherer: party poll failed', err));
+  }, PARTY_REFRESH_INTERVAL_MS);
+}
+
+async function clearPartyLocally(message = '', type = 'success') {
+  partySession = null;
+  partyState = null;
+  state.clearPartySession();
+  resetCurrentMissionForActiveContext();
+  closeItemPopup();
+  renderSquadModeSelect();
+  renderMissionMetaSelects();
+  renderPartyUi();
+  renderPoiGrid();
+  renderStats();
+  if (message) toast(message, type);
+}
+
+function handlePartyAccessError(err, fallbackMessage) {
+  if (err?.status === 404 && !err?.payload?.error) {
+    partyApiUnsupported = true;
+    if (isInParty()) clearPartyLocally(partyUnsupportedMessage(), 'error');
+    else {
+      renderPartyUi();
+      toast(partyUnsupportedMessage(), 'error');
+    }
+    return true;
+  }
+  if (err?.status === 403 || err?.status === 404) {
+    clearPartyLocally('Party ended or you were removed.', 'error');
+    return true;
+  }
+  if (fallbackMessage) toast(fallbackMessage, 'error');
+  return false;
+}
+
+async function syncPartyMissionMeta() {
+  if (!isInParty() || !isPartyHost() || !serverUrl) return;
+  try {
+    const data = await updatePartyMission(serverUrl, partySession.code, partySession.memberToken, currentMissionMeta());
+    partyApiUnsupported = false;
+    applyPartyState(data.party);
+  } catch (err) {
+    if (handlePartyAccessError(err)) return;
+    console.error('Stat Gatherer: party mission metadata sync failed', err);
+  }
+}
+
+async function invalidatePartyReadyIfNeeded() {
+  if (!isInParty() || !partyState?.me?.isReady || !serverUrl) return;
+  try {
+    const data = await setPartyReady(serverUrl, partySession.code, partySession.memberToken, false);
+    partyApiUnsupported = false;
+    applyPartyState(data.party);
+  } catch (err) {
+    if (handlePartyAccessError(err)) return;
+    console.error('Stat Gatherer: party readiness invalidation failed', err);
+  }
+}
+
+async function refreshPartyState({ quiet = false } = {}) {
+  if (!isInParty() || !serverUrl) return null;
+  if (partyRefreshPromise) return partyRefreshPromise;
+  const pending = (async () => {
+    try {
+      const data = await fetchParty(serverUrl, partySession.code, partySession.memberToken);
+      partyApiUnsupported = false;
+      if (data.party.lastFinalizedMissionId && data.party.lastFinalizedMissionId !== partySession.lastSeenFinalizedMissionId) {
+        rememberPartySession({ lastSeenFinalizedMissionId: data.party.lastFinalizedMissionId });
+        try {
+          await pullDiverHistoryFromServer();
+        } catch (err) {
+          console.error('Stat Gatherer: diver history pull after party finalize failed', err);
+        }
+      }
+      applyPartyState(data.party);
+      return data.party;
+    } catch (err) {
+      if (handlePartyAccessError(err)) return null;
+      if (!quiet) toast('Could not refresh party state.', 'error');
+      throw err;
+    } finally {
+      partyRefreshPromise = null;
+    }
+  })();
+  partyRefreshPromise = pending;
+  return pending;
+}
+
+async function createPartySession() {
+  if (!serverUrl) {
+    toast('Party codes need the shared server to be online.', 'error');
+    return;
+  }
+  try {
+    const data = await createParty(serverUrl, clientId, currentMission, partyDisplayName());
+    partyApiUnsupported = false;
+    partySession = {
+      code: data.party.code,
+      memberToken: data.memberToken,
+      lastSeenFinalizedMissionId: data.party.lastFinalizedMissionId || '',
+    };
+    state.setPartySession(partySession);
+    applyPartyState(data.party);
+    toast(`Party ${data.party.code} created.`, 'success');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not create party.');
+  }
+}
+
+async function joinPartySession() {
+  if (!serverUrl) {
+    toast('Party codes need the shared server to be online.', 'error');
+    return;
+  }
+  const code = normalizePartyCodeInput(partyJoinCodeDraft || el('party-join-code')?.value);
+  if (!code) {
+    toast('Enter a party code first.', 'error');
+    return;
+  }
+  try {
+    const data = await joinParty(serverUrl, code, clientId, partyDisplayName());
+    partyApiUnsupported = false;
+    partyJoinCodeDraft = '';
+    partySession = {
+      code: data.party.code,
+      memberToken: data.memberToken,
+      lastSeenFinalizedMissionId: data.party.lastFinalizedMissionId || '',
+    };
+    state.setPartySession(partySession);
+    applyPartyState(data.party);
+    closePartyPanel();
+    toast(`Joined party ${data.party.code}.`, 'success');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not join party.');
+  }
+}
+
+async function togglePartyReadyState() {
+  if (!isInParty() || !serverUrl) return;
+  if (!isPartyReady() && isPartyHost() && !validateCurrentMissionRequiredLabels()) return;
+  const wasReady = isPartyReady();
+  try {
+    if (!wasReady && isPartyHost()) {
+      await syncPartyMissionMeta();
+      if (!isInParty()) return;
+    }
+    const data = await setPartyReady(
+      serverUrl,
+      partySession.code,
+      partySession.memberToken,
+      !wasReady,
+      !wasReady ? currentMission : null,
+    );
+    partyApiUnsupported = false;
+    if (data.party.lastFinalizedMissionId) {
+      rememberPartySession({ lastSeenFinalizedMissionId: data.party.lastFinalizedMissionId });
+    }
+    applyPartyState(data.party);
+    if (!wasReady) closePartyPanel();
+    toast(!wasReady ? 'Party tally submitted. Mark not ready to edit it again.' : 'Party tally marked as not ready.', 'success');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not update party readiness.');
+  }
+}
+
+async function finalizePartyMissionSubmission(allMinorPlacesCollected) {
+  if (!isInParty() || !isPartyHost() || !serverUrl) return;
+  if (!allPartyMembersReady()) {
+    toast('Everyone has to be ready before the host can finalize.', 'error');
+    return;
+  }
+  try {
+    const data = await finalizeParty(serverUrl, partySession.code, partySession.memberToken, allMinorPlacesCollected, currentMission);
+    partyApiUnsupported = false;
+    rememberPartySession({ lastSeenFinalizedMissionId: data.mission.id });
+    partyState = data.party;
+    try {
+      await pullDiverHistoryFromServer();
+    } catch (err) {
+      console.error('Stat Gatherer: diver history pull after party finalize failed', err);
+    }
+    applyPartyState(data.party);
+    closePartyPanel();
+    closeSubmitPopup();
+    closeMissionPanel();
+    toast('Party mission saved. Next party mission started.', 'success');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not finalize party mission.');
+  }
+}
+
+async function leaveCurrentParty() {
+  if (!isInParty() || !serverUrl) return;
+  try {
+    const host = isPartyHost();
+    await leaveParty(serverUrl, partySession.code, partySession.memberToken);
+    partyApiUnsupported = false;
+    closePartyPanel();
+    await clearPartyLocally(host ? 'Party ended.' : 'Left party.');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not leave party.');
+  }
+}
+
+async function kickCurrentPartyMember(memberId) {
+  if (!isInParty() || !isPartyHost() || !serverUrl) return;
+  try {
+    const data = await kickPartyMember(serverUrl, partySession.code, partySession.memberToken, memberId);
+    partyApiUnsupported = false;
+    applyPartyState(data.party);
+    toast('Party member removed.', 'success');
+  } catch (err) {
+    handlePartyAccessError(err, err.message || 'Could not remove party member.');
+  }
+}
+
+async function copyCurrentPartyCode() {
+  const code = partyState?.code || partySession?.code;
+  if (!code) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code);
+      toast(`Copied party code ${code}.`, 'success');
+    } else {
+      toast(`Party code: ${code}`, 'success');
+    }
+  } catch {
+    toast(`Party code: ${code}`, 'success');
+  }
+}
+
+async function handlePartyAction(action, btn) {
+  if (action === 'party-create') await createPartySession();
+  else if (action === 'party-join') await joinPartySession();
+  else if (action === 'party-toggle-ready') await togglePartyReadyState();
+  else if (action === 'party-finalize') openSubmitPopup();
+  else if (action === 'party-leave') await leaveCurrentParty();
+  else if (action === 'party-kick') await kickCurrentPartyMember(btn.dataset.member);
+  else if (action === 'party-copy-code') await copyCurrentPartyCode();
+}
+
 /* ---------------- Squad mode ---------------- */
 
 function renderSquadModeSelect() {
   const mode = state.SQUAD_MODES.includes(currentMission.squadMode) ? currentMission.squadMode : state.DEFAULT_SQUAD_MODE;
-  el('squad-mode-select').value = mode;
+  const effectiveMode = effectivePartySquadMode(mode);
+  const select = el('squad-mode-select');
+  if (!select) return;
+  if (currentMission.squadMode !== effectiveMode) {
+    currentMission.squadMode = effectiveMode;
+    state.setLastSquadMode(effectiveMode);
+    persistCurrentMission();
+  }
+  select.value = effectiveMode;
+  select.disabled = isInParty() && (!isPartyHost() || partyForcesMultiplayer() || isPartyTallyLocked());
 }
 
 on('squad-mode-select', 'change', (e) => {
+  if (isInParty() && (!isPartyHost() || partyForcesMultiplayer() || isPartyTallyLocked())) {
+    renderSquadModeSelect();
+    return;
+  }
   currentMission.squadMode = e.target.value;
   state.setLastSquadMode(e.target.value);
   persistCurrentMission();
+  syncPartyMissionMeta();
 });
 
 /* ---------------- Meta labels (difficulty / mission / faction / city / planet) ---------------- */
@@ -689,6 +1431,7 @@ async function autofillFactionFromPlanet(planet) {
   state.setLastFaction('');
   if (el('faction-display')) el('faction-display').textContent = factionSubtitleText('');
   persistCurrentMission();
+  syncPartyMissionMeta();
   try {
     const factionId = await fetchFactionIdForPlanetName(planet.name);
     if (token !== planetFactionLookupToken) return;
@@ -697,6 +1440,7 @@ async function autofillFactionFromPlanet(planet) {
     state.setLastFaction(factionId);
     if (el('faction-display')) el('faction-display').textContent = factionSubtitleText(factionId);
     persistCurrentMission();
+    syncPartyMissionMeta();
   } catch {
     // Best effort only — a failed wiki lookup leaves faction unlabeled.
   }
@@ -722,6 +1466,12 @@ function renderMissionMetaSelects() {
   if (el('faction-display')) el('faction-display').textContent = factionSubtitleText(currentMission.faction);
   if (el('city-type-select')) el('city-type-select').value = currentMission.cityType || '';
   if (el('planet-input')) el('planet-input').value = findPlanetById(currentMission.planet)?.name || '';
+  const locked = isInParty() && (!isPartyHost() || isPartyTallyLocked());
+  if (el('difficulty-select')) el('difficulty-select').disabled = locked;
+  if (el('mission-type-input')) el('mission-type-input').disabled = locked;
+  if (el('city-type-select')) el('city-type-select').disabled = locked;
+  if (el('planet-input')) el('planet-input').disabled = locked;
+  renderMissionActionButtons();
 }
 
 function validateCurrentMissionRequiredLabels() {
@@ -754,16 +1504,26 @@ function renderStatsFilterSelects() {
 }
 
 on('difficulty-select', 'change', (e) => {
+  if (isInParty() && !isPartyHost()) {
+    renderMissionMetaSelects();
+    return;
+  }
   currentMission.difficulty = e.target.value;
   state.setLastDifficulty(e.target.value);
   persistCurrentMission();
+  syncPartyMissionMeta();
 });
 on('mission-type-input', 'change', (e) => {
+  if (isInParty() && !isPartyHost()) {
+    renderMissionMetaSelects();
+    return;
+  }
   const typed = e.target.value.trim();
   if (!typed) {
     currentMission.missionType = '';
     state.setLastMissionType('');
     persistCurrentMission();
+    syncPartyMissionMeta();
     return;
   }
   const missionType = findMissionTypeByName(typed);
@@ -776,13 +1536,23 @@ on('mission-type-input', 'change', (e) => {
   currentMission.missionType = missionType.id;
   state.setLastMissionType(missionType.id);
   persistCurrentMission();
+  syncPartyMissionMeta();
 });
 on('city-type-select', 'change', (e) => {
+  if (isInParty() && !isPartyHost()) {
+    renderMissionMetaSelects();
+    return;
+  }
   currentMission.cityType = e.target.value;
   state.setLastCityType(e.target.value);
   persistCurrentMission();
+  syncPartyMissionMeta();
 });
 on('planet-input', 'change', (e) => {
+  if (isInParty() && !isPartyHost()) {
+    renderMissionMetaSelects();
+    return;
+  }
   const typed = e.target.value.trim();
   if (!typed) {
     planetFactionLookupToken += 1;
@@ -800,6 +1570,7 @@ on('planet-input', 'change', (e) => {
   currentMission.planet = planet.id;
   state.setLastPlanet(planet.id);
   persistCurrentMission();
+  syncPartyMissionMeta();
   autofillFactionFromPlanet(planet);
 });
 
@@ -842,19 +1613,21 @@ function itemRowControlsHtml(poiId, itemId) {
   const count = currentMission.itemDrops[poiId]?.[itemId] || 0;
   const stack = hasDenoms ? denomStackForCurrentMission(poiId, itemId) : null;
   const lastPick = stack && stack.length ? stack[stack.length - 1] : null;
+  const lockedAttr = isPartyTallyLocked() ? ' disabled' : '';
   return `
-    <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
+    <button class="btn btn-count minus${lastPick ? ' minus-labeled' : ''}" data-action="item-dec"${lockedAttr}${lastPick ? ` title="Undo the last pickup you tallied here (${lastPick})"` : ''}>${lastPick ? `−${lastPick}` : '−'}</button>
     <span class="item-count item-popup-count">${count}</span>
     ${hasDenoms ? `
       <div class="denom-pick-group" title="Tally the exact amount you picked up — this feeds Drop Sizes too, no need to double-enter it there">
-        ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="item-inc-denom" data-denom="${d}">+${d}</button>`).join('')}
+        ${i.denominations.map((d) => `<button class="btn btn-denom-pick" data-action="item-inc-denom" data-denom="${d}"${lockedAttr}>+${d}</button>`).join('')}
       </div>
-    ` : '<button class="btn btn-count plus" data-action="item-inc">+</button>'}
+    ` : `<button class="btn btn-count plus" data-action="item-inc"${lockedAttr}>+</button>`}
   `;
 }
 
 function renderPoiGrid() {
   const grid = el('poi-grid');
+  const tallyLocked = isPartyTallyLocked();
   // Classic/desktop item-row-desktop rows need more per-card width than
   // Simplified's compact 2-column tiles do (a fixed name column + a
   // denom-pick-group like "+100 +1000" doesn't fit in the same ~260px a
@@ -881,9 +1654,9 @@ function renderPoiGrid() {
           </span>
         </div>
         <div class="poi-count-row">
-          <button class="btn btn-count minus" data-action="poi-dec">−</button>
+          <button class="btn btn-count minus" data-action="poi-dec"${tallyLocked ? ' disabled' : ''}>−</button>
           <span class="poi-count">${count}</span>
-          <button class="btn btn-count plus" data-action="poi-inc">+1 FOUND</button>
+          <button class="btn btn-count plus" data-action="poi-inc"${tallyLocked ? ' disabled' : ''}>+1 FOUND</button>
         </div>
         ${simplifiedView ? `
           <div class="poi-collapsed-summary">
@@ -903,7 +1676,7 @@ function renderPoiGrid() {
             if (simplifiedView) {
               const tileCount = currentMission.itemDrops[p.id]?.[i.id] || 0;
               return `
-                <button class="item-tile" type="button" data-action="item-tile-open" data-item="${i.id}">
+                <button class="item-tile" type="button" data-action="item-tile-open" data-item="${i.id}"${tallyLocked ? ' disabled' : ''}>
                   ${iconBlock(i.icon)}
                   <span class="item-tile-name">${esc(i.name)}</span>
                   ${tileCount > 0 ? `<span class="item-tile-count">${tileCount}</span>` : ''}
@@ -927,8 +1700,9 @@ function renderPoiGrid() {
   refreshQuickGuideIfOpen();
 }
 
-function persistCurrentMission() {
+function persistCurrentMission({ invalidatePartyReady = false } = {}) {
   state.saveCurrentMission(currentMission);
+  if (invalidatePartyReady) invalidatePartyReadyIfNeeded();
 }
 
 function denomStackForCurrentMission(poiId, itemId) {
@@ -1032,15 +1806,17 @@ function ensurePoiSlotForAdvancedTally(poiId) {
 // below) and the mobile item popup (next section) — same mutation, same
 // undo-stack bookkeeping, just triggered from two different bits of DOM.
 function tallyItemInc(poiId, itemId, options = {}) {
+  if (isPartyTallyLocked()) return;
   currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
   recordPoiLootPickup(poiId, itemId, options);
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   renderItemPopupIfOpen();
   renderStats();
 }
 
 function tallyItemDec(poiId, itemId) {
+  if (isPartyTallyLocked()) return;
   if ((currentMission.itemDrops[poiId][itemId] || 0) > 0) {
     const stack = denomStackForCurrentMission(poiId, itemId);
     if (stack && stack.length > 0) {
@@ -1052,20 +1828,21 @@ function tallyItemDec(poiId, itemId) {
     }
     currentMission.itemDrops[poiId][itemId] = Math.max(0, (currentMission.itemDrops[poiId][itemId] || 0) - 1);
   }
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   renderItemPopupIfOpen();
   renderStats();
 }
 
 function tallyItemIncDenom(poiId, itemId, denom, options = {}) {
+  if (isPartyTallyLocked()) return;
   currentMission.itemDrops[poiId][itemId] = (currentMission.itemDrops[poiId][itemId] || 0) + 1;
   if (!currentMission.denomCounts[poiId]) currentMission.denomCounts[poiId] = {};
   if (!currentMission.denomCounts[poiId][itemId]) currentMission.denomCounts[poiId][itemId] = {};
   currentMission.denomCounts[poiId][itemId][denom] = (currentMission.denomCounts[poiId][itemId][denom] || 0) + 1;
   denomStackForCurrentMission(poiId, itemId).push(denom);
   recordPoiLootPickup(poiId, itemId, { ...options, denom });
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   renderItemPopupIfOpen();
   renderStats();
@@ -1075,9 +1852,10 @@ function tallyItemIncDenom(poiId, itemId, denom, options = {}) {
 // effect either way, just two different places to trigger it from so
 // logging a find never requires scrolling to the specific POI's card.
 function foundPoi(poiId) {
+  if (isPartyTallyLocked()) return;
   currentMission.poiCounts[poiId] = (currentMission.poiCounts[poiId] || 0) + 1;
   const instanceIndex = createPoiLootInstance(poiId);
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   renderStats();
   // Finding a container starts the guided flow: pick what dropped, pick
@@ -1103,13 +1881,17 @@ function renderQuickAddBar() {
     refreshQuickGuideIfOpen();
     return;
   }
-  bar.innerHTML = `<button class="quick-add-btn" type="button" data-action="quick-add-open">+ ADD MINOR PLACE OF INTEREST</button>`;
+  bar.innerHTML = `<button class="quick-add-btn" type="button" data-action="quick-add-open"${isPartyTallyLocked() ? ' disabled' : ''}>+ ADD MINOR PLACE OF INTEREST</button>`;
   refreshQuickGuideIfOpen();
 }
 
 on('quick-add-bar', 'click', (e) => {
   const btn = e.target.closest('button[data-action="quick-add-open"]');
   if (!btn) return;
+  if (isPartyTallyLocked()) {
+    toast('Mark not ready before editing your tally.', 'error');
+    return;
+  }
   startPoiPick();
 });
 
@@ -1124,6 +1906,9 @@ on('poi-grid', 'click', (e) => {
     if (expandedPoiCards.has(poiId)) expandedPoiCards.delete(poiId);
     else expandedPoiCards.add(poiId);
     renderPoiGrid();
+    return;
+  } else if (isPartyTallyLocked()) {
+    toast('Mark not ready before editing your tally.', 'error');
     return;
   } else if (action === 'poi-inc') {
     foundPoi(poiId);
@@ -1149,7 +1934,7 @@ on('poi-grid', 'click', (e) => {
   } else {
     return;
   }
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   renderStats();
 });
@@ -1339,7 +2124,7 @@ function guidedDecrementFound() {
   if (!openItemPopup || openItemPopup.mode !== 'guided') return;
   const { poiId } = openItemPopup;
   currentMission.poiCounts[poiId] = Math.max(0, (currentMission.poiCounts[poiId] || 0) - 1);
-  persistCurrentMission();
+  persistCurrentMission({ invalidatePartyReady: true });
   renderPoiGrid();
   guidedAdvanceOrClose();
 }
@@ -1355,6 +2140,11 @@ on('item-popup', 'click', (e) => {
     return;
   }
   if (!openItemPopup) return;
+  if (isPartyTallyLocked()) {
+    toast('Mark not ready before editing your tally.', 'error');
+    closeItemPopup();
+    return;
+  }
 
   if (openItemPopup.mode === 'poi-pick') {
     if (action === 'poi-pick-select') foundPoi(btn.dataset.poi);
@@ -1377,6 +2167,9 @@ on('item-popup', 'click', (e) => {
 /* ---------------- New Mission ---------------- */
 
 function submitPromptHtml() {
+  const finalAction = isInParty() && isPartyHost()
+    ? 'This will merge every ready party member tally into one mission, save it to the server, and start the next shared party round.'
+    : 'This will save the mission to your history and start a fresh one.';
   return `
     <div class="item-popup-header">
       <div class="item-popup-heading">
@@ -1386,9 +2179,10 @@ function submitPromptHtml() {
       <button class="btn btn-icon close-btn" data-action="submit-cancel" aria-label="Close">✕</button>
     </div>
     <p>If you think this run cleared every Minor Place's special loot on the map, mark it here. Ignore loose samples around the POI — this question is only about the actual bunker/container/pod drops.</p>
+    <p class="hint" style="margin-top:0;">${esc(finalAction)}</p>
     <div class="submit-popup-actions">
-      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">Yes — I think we got all MPOI loot</button>
-      <button class="btn" type="button" data-action="submit-finish" data-collected="no">No / Not Sure</button>
+      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">${isInParty() && isPartyHost() ? 'Yes — finalize the party mission' : 'Yes — I think we got all MPOI loot'}</button>
+      <button class="btn" type="button" data-action="submit-finish" data-collected="no">${isInParty() && isPartyHost() ? 'Finalize without marking all MPOIs' : 'No / Not Sure'}</button>
     </div>
     <div class="submit-popup-cancel">
       <button class="btn-link" type="button" data-action="submit-cancel">Cancel</button>
@@ -1397,7 +2191,15 @@ function submitPromptHtml() {
 }
 
 function openSubmitPopup() {
+  if (isInParty() && !isPartyHost()) {
+    toast('Only the host can finalize a party mission.', 'error');
+    return;
+  }
   if (!validateCurrentMissionRequiredLabels()) return;
+  if (isInParty() && !allPartyMembersReady()) {
+    toast('Wait until every party member is ready before finalizing.', 'error');
+    return;
+  }
   el('submit-popup').innerHTML = submitPromptHtml();
   showAnimated(el('submit-popup-overlay'));
   showAnimated(el('submit-popup'));
@@ -1409,26 +2211,42 @@ function closeSubmitPopup() {
 }
 
 function clearPromptHtml() {
+  const subtitle = isInParty()
+    ? 'This resets only your local contribution for the current party mission.'
+    : 'This wipes the in-progress tally only.';
   return `
     <div class="item-popup-header">
       <div class="item-popup-heading">
         <div class="item-popup-name">Discard Current Mission?</div>
-        <div class="item-popup-poi">This wipes the in-progress tally only.</div>
+        <div class="item-popup-poi">${esc(subtitle)}</div>
       </div>
       <button class="btn btn-icon close-btn" data-action="clear-cancel" aria-label="Close">✕</button>
     </div>
-    <p>If this run is garbage, clear it here and start fresh. Nothing from the current mission will be saved or synced.</p>
+    <p>${isInParty() ? 'If your contribution is garbage, clear it here and keep the party round alive for everyone else.' : 'If this run is garbage, clear it here and start fresh. Nothing from the current mission will be saved or synced.'}</p>
     <div class="submit-popup-actions">
-      <button class="btn btn-danger" type="button" data-action="clear-confirm">Yes — discard this mission</button>
+      <button class="btn btn-danger" type="button" data-action="clear-confirm">${isInParty() ? 'Yes — clear my tally' : 'Yes — discard this mission'}</button>
       <button class="btn" type="button" data-action="clear-cancel">Keep working on it</button>
     </div>
   `;
 }
 
 function openClearPopup() {
+  if (isPartyTallyLocked()) {
+    toast('Mark not ready before editing your tally.', 'error');
+    return;
+  }
   el('clear-popup').innerHTML = clearPromptHtml();
   showAnimated(el('clear-popup-overlay'));
   showAnimated(el('clear-popup'));
+}
+
+async function handlePrimaryMissionAction() {
+  if (isInParty() && !partyState) return;
+  if (isInParty() && !isPartyHost()) {
+    await togglePartyReadyState();
+    return;
+  }
+  openSubmitPopup();
 }
 
 function closeClearPopup() {
@@ -1437,6 +2255,10 @@ function closeClearPopup() {
 }
 
 async function finalizeMissionSubmission(allMinorPlacesCollected) {
+  if (isInParty()) {
+    await finalizePartyMissionSubmission(allMinorPlacesCollected);
+    return;
+  }
   currentMission.allMinorPlacesCollected = !!allMinorPlacesCollected;
   persistCurrentMission();
   const { completed, fresh } = state.completeMission(config);
@@ -1452,8 +2274,10 @@ async function finalizeMissionSubmission(allMinorPlacesCollected) {
   await trySyncMission(completed);
 }
 
-on('new-mission-btn', 'click', openSubmitPopup);
-on('poi-new-mission-btn', 'click', openSubmitPopup);
+on('new-mission-btn', 'click', handlePrimaryMissionAction);
+on('poi-new-mission-btn', 'click', handlePrimaryMissionAction);
+on('party-ready-btn', 'click', togglePartyReadyState);
+on('poi-party-ready-btn', 'click', togglePartyReadyState);
 on('submit-popup-overlay', 'click', closeSubmitPopup);
 on('submit-popup', 'click', async (e) => {
   const btn = e.target.closest('button[data-action]');
@@ -1468,7 +2292,11 @@ on('submit-popup', 'click', async (e) => {
 });
 
 function clearCurrentMission() {
-  currentMission = state.discardCurrentMission(config);
+  currentMission = isInParty() && partyState ? missionForPartyRound(partyState) : state.discardCurrentMission(config);
+  if (isInParty() && partyState) {
+    state.saveCurrentMission(currentMission);
+    invalidatePartyReadyIfNeeded();
+  }
   closeClearPopup();
   closeSubmitPopup();
   closeItemPopup();
@@ -1476,7 +2304,8 @@ function clearCurrentMission() {
   renderPoiGrid();
   renderSquadModeSelect();
   renderMissionMetaSelects();
-  toast('Mission cleared — nothing was saved.', 'success');
+  renderPartyUi();
+  toast(isInParty() ? 'Your party tally was cleared.' : 'Mission cleared — nothing was saved.', 'success');
 }
 
 on('clear-mission-btn', 'click', openClearPopup);
@@ -1549,6 +2378,13 @@ async function syncPendingMissions() {
     await pullDiverHistoryFromServer();
   } catch (err) {
     console.error('Stat Gatherer: diver history pull failed', err);
+  }
+  if (isInParty()) {
+    try {
+      await refreshPartyState({ quiet: true });
+    } catch (err) {
+      console.error('Stat Gatherer: party refresh failed', err);
+    }
   }
   // Global Stats' mission list (globalMissions) previously only refreshed
   // when the GLOBAL STATS tab button was clicked — a delete/edit by another
@@ -1625,13 +2461,6 @@ function statsHtml(stats) {
     title: `${i.name}: ${stats.items[i.id].total} (${(stats.items[i.id].pctOfDrops * 100).toFixed(1)}% of drops)`,
   }));
 
-  const valueChartRows = config.itemTypes.map((i) => ({
-    iconHtml: iconBlock(i.icon),
-    label: i.name,
-    value: stats.items[i.id].totalValue,
-    displayValue: stats.items[i.id].totalValue.toFixed(0),
-    title: `${i.name}: ${stats.items[i.id].totalValue.toFixed(0)} total value`,
-  }));
   const poiScopeNote = stats.poiMissionCount === 0
     ? '<p class="hint">Minor Place frequency uses only missions marked as having collected all special bunker/container/pod loot on the map. Loose samples around POIs do not matter for this flag. None of the currently-filtered missions are marked that way yet.</p>'
     : `<p class="hint">Minor Place frequency is using ${stats.poiMissionCount} mission${stats.poiMissionCount === 1 ? '' : 's'} marked as having collected all special bunker/container/pod loot on the map. Loose samples around POIs do not matter for this flag.</p>`;
@@ -1673,22 +2502,6 @@ function statsHtml(stats) {
             <td>${stats.items[i.id].total}</td>
             <td>${(stats.items[i.id].pctOfDrops * 100).toFixed(1)}%</td>
             <td>${stats.items[i.id].perMission.toFixed(2)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-
-    <h3>Resource Value</h3>
-    ${barChartHtml(valueChartRows)}
-    <table class="stats-table">
-      <thead><tr><th>Item</th><th>Value Each</th><th>Total Value</th><th>Value / Mission</th></tr></thead>
-      <tbody>
-        ${config.itemTypes.map((i) => `
-          <tr>
-            <td>${iconInline(i.icon)} ${esc(i.name)}</td>
-            <td>${stats.items[i.id].avgValue}</td>
-            <td>${stats.items[i.id].totalValue.toFixed(0)}</td>
-            <td>${stats.items[i.id].valuePerMission.toFixed(1)}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -1762,12 +2575,10 @@ function renderStats() {
   const localMissionsForDenoms = [...state.getHistory(), currentMission];
   const localDenomTally = buildDenomTallyFromMissions(localMissionsForDenoms);
   const globalDenomTally = buildDenomTallyFromMissions(globalMissions || []);
-  const resolvedItemTypes = resolveItemValues(config.itemTypes, localDenomTally, globalDenomTally);
-  const resolvedConfig = { ...config, itemTypes: resolvedItemTypes };
   const history = filterMissions(state.getHistory(), statsFilters);
-  el('stats-mine').innerHTML = statsHtml(computeStats(history, resolvedConfig)) + dropSizeStatsHtml(localDenomTally);
+  el('stats-mine').innerHTML = statsHtml(computeStats(history, config)) + dropSizeStatsHtml(localDenomTally);
   const globalStatsHtml = globalMissions
-    ? statsHtml(computeStats(filterMissions(globalMissions, statsFilters), resolvedConfig))
+    ? statsHtml(computeStats(filterMissions(globalMissions, statsFilters), config))
     : (serverUrl
       ? '<p class="empty-note">Loading global stats…</p>'
       : '<p class="empty-note">Server sync is off, so Global Stats is unavailable.</p>');
@@ -1830,6 +2641,7 @@ async function refreshGlobalStats() {
 /* ---------------- Page nav ---------------- */
 
 function showPage(page) {
+  if (!page) return;
   document.querySelectorAll('.page-nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   el('tally-page')?.classList.toggle('hidden', page !== 'tally');
   el('stats-page')?.classList.toggle('hidden', page !== 'stats');
@@ -1838,7 +2650,7 @@ function showPage(page) {
   refreshQuickGuideIfOpen();
 }
 
-document.querySelectorAll('.page-nav-btn').forEach((btn) => {
+document.querySelectorAll('.page-nav-btn[data-page]').forEach((btn) => {
   btn.addEventListener('click', () => showPage(btn.dataset.page));
 });
 
@@ -1958,14 +2770,17 @@ function renderLogPage() {
             <span class="log-tag">${esc(missionLabel(m, 'cityTypes', 'cityType'))}</span>
             <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
             ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
+            ${m.partyCode ? `<span class="log-tag">PARTY ${esc(m.partyCode)}</span>` : ''}
           </div>
         </div>
         <div class="log-card-summary">${esc(poiSummary)} — ${esc(itemSummary)}</div>
+        ${m.editable === false ? '<div class="hint">This party mission belongs to another host, so it is read-only here.</div>' : `
         <div class="log-card-actions">
           <button class="btn" data-action="log-edit">Edit</button>
           <button class="btn btn-danger" data-action="log-delete">Delete</button>
         </div>
         ${missionEditFormHtml(m)}
+        `}
       </div>
     `;
   }).join('');
@@ -2146,6 +2961,7 @@ function globalMissionCardHtml(m) {
           <span class="log-tag">${esc(missionLabel(m, 'cityTypes', 'cityType'))}</span>
           <span class="log-tag">${esc(missionLabel(m, 'planets', 'planet'))}</span>
           ${m.allMinorPlacesCollected ? '<span class="log-tag">ALL MPOIs</span>' : ''}
+          ${m.partyCode ? `<span class="log-tag">PARTY ${esc(m.partyCode)}</span>` : ''}
           <span class="log-tag">${totalPois(m)} MPOI${totalPois(m) === 1 ? '' : 'S'}</span>
         </div>
       </div>
@@ -2245,6 +3061,70 @@ on('client-badge', 'click', openSettings);
 on('close-settings', 'click', closeSettings);
 on('settings-overlay', 'click', closeSettings);
 
+function openPartyPanel() {
+  renderPartyUi();
+  partyPanelOpen = true;
+  showAnimated(el('party-drawer'));
+  showAnimated(el('party-overlay'));
+  renderPartyNavButton();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const joinInput = el('party-panel')?.querySelector('[data-role="party-join-code"]');
+    if (joinInput) joinInput.focus();
+  }));
+}
+function closePartyPanel() {
+  partyPanelOpen = false;
+  hideAnimated(el('party-drawer'));
+  hideAnimated(el('party-overlay'));
+  renderPartyNavButton();
+}
+window.__sgClosePartyPanel = closePartyPanel;
+function togglePartyPanel() {
+  if (partyPanelOpen) closePartyPanel();
+  else openPartyPanel();
+}
+on('party-nav-btn', 'click', togglePartyPanel);
+on('party-overlay', 'click', closePartyPanel);
+on('party-drawer', 'click', (e) => {
+  if (!e.target.closest('[data-action="party-close"]')) return;
+  closePartyPanel();
+});
+
+on('party-settings', 'input', (e) => {
+  const input = e.target.closest('[data-role="party-join-code"]');
+  if (!input) return;
+  partyJoinCodeDraft = normalizePartyCodeInput(input.value);
+  input.value = partyJoinCodeDraft;
+});
+on('party-panel', 'input', (e) => {
+  const input = e.target.closest('[data-role="party-join-code"]');
+  if (!input) return;
+  partyJoinCodeDraft = normalizePartyCodeInput(input.value);
+  input.value = partyJoinCodeDraft;
+});
+on('party-settings', 'keydown', async (e) => {
+  const input = e.target.closest('[data-role="party-join-code"]');
+  if (!input || e.key !== 'Enter') return;
+  e.preventDefault();
+  await joinPartySession();
+});
+on('party-panel', 'keydown', async (e) => {
+  const input = e.target.closest('[data-role="party-join-code"]');
+  if (!input || e.key !== 'Enter') return;
+  e.preventDefault();
+  await joinPartySession();
+});
+on('party-settings', 'click', async (e) => {
+  const btn = e.target.closest('button[data-action^="party-"]');
+  if (!btn) return;
+  await handlePartyAction(btn.dataset.action, btn);
+});
+on('party-panel', 'click', async (e) => {
+  const btn = e.target.closest('button[data-action^="party-"]');
+  if (!btn) return;
+  await handlePartyAction(btn.dataset.action, btn);
+});
+
 /* ---------------- Mission setup drawer (narrow viewports) ---------------- */
 // Below 1300px, mission setup (squad mode, difficulty, mission type,
 // city/non-city, faction, planet + actions) moves off-canvas behind the
@@ -2269,7 +3149,76 @@ on('mission-config-btn', 'click', openMissionPanel);
 on('close-mission-panel', 'click', closeMissionPanel);
 on('mission-panel-overlay', 'click', closeMissionPanel);
 
+async function applyServerUrlSetting(nextUrl, { useDefault = false } = {}) {
+  if (isInParty()) {
+    toast('Leave the current party before switching servers.', 'error');
+    renderServerSettings();
+    return;
+  }
+  const normalized = normalizeServerUrlInput(nextUrl);
+  if (!useDefault && normalized.error) {
+    toast(normalized.error, 'error');
+    renderServerSettings();
+    return;
+  }
+  if (!useDefault && isMixedContentBlockedServerUrl(normalized.parsed)) {
+    toast('This page is loaded over HTTPS, so browsers block plain-http LAN servers. Open the frontend from your LAN too, or put the server behind HTTPS.', 'error');
+    renderServerSettings();
+    return;
+  }
+  if (useDefault) {
+    state.setServerUrl(null);
+  } else {
+    state.setServerUrl(normalized.value);
+  }
+  serverUrl = state.getServerUrl();
+  partyApiUnsupported = false;
+  globalMissions = null;
+  renderServerSettings();
+  renderPartyUi();
+  renderStats();
+  if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
+
+  if (!serverUrl) {
+    setSyncStatus('OFFLINE', 'error');
+    toast('Server sync disabled for this device.', 'success');
+    return;
+  }
+
+  state.requeueOwnedMissionsForSync(clientId);
+  const ok = await pingServer(serverUrl);
+  if (!ok) {
+    setSyncStatus('SERVER UNREACHABLE', 'error');
+    toast(`Saved server URL, but could not reach ${serverUrl}.`, 'error');
+    return;
+  }
+  await syncPendingMissions();
+  renderServerSettings();
+  renderPartyUi();
+  renderStats();
+  if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
+  toast(useDefault ? 'Switched back to the built-in shared server.' : `Server set to ${serverUrl}.`, 'success');
+}
+
+on('apply-server-url', 'click', async () => {
+  const nextUrl = el('server-url-input')?.value?.trim() || '';
+  await applyServerUrlSetting(nextUrl);
+});
+on('use-default-server-url', 'click', async () => {
+  await applyServerUrlSetting('', { useDefault: true });
+});
+on('server-url-input', 'keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  await applyServerUrlSetting(e.target.value.trim());
+});
+
 on('apply-client-id', 'click', async () => {
+  if (isInParty()) {
+    toast('Leave the current party before switching Diver IDs.', 'error');
+    renderClientBadge();
+    return;
+  }
   const newId = el('client-id-input').value.trim();
   if (!newId || newId === clientId) return;
   clientId = newId;
@@ -2326,6 +3275,8 @@ on('import-json-input', 'change', async (e) => {
       currentMission = data.currentMission;
       state.saveCurrentMission(currentMission);
     }
+    partySession = state.getPartySession();
+    if (!partySession) partyState = null;
     currentMission = state.getCurrentMission(config);
     closeItemPopup();
     renderQuickAddBar();
@@ -2335,6 +3286,7 @@ on('import-json-input', 'change', async (e) => {
     renderMissionMetaSelects();
     renderStatsFilterSelects();
     renderGlobalLogFilterSelects();
+    renderPartyUi();
     if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
     toast('Import complete.', 'success');
   } catch {
@@ -2344,15 +3296,25 @@ on('import-json-input', 'change', async (e) => {
   }
 });
 
-on('reset-data', 'click', () => {
+on('reset-data', 'click', async () => {
   if (!confirm('This will erase all local missions and the in-progress mission. Continue?')) return;
+  if (isInParty() && serverUrl) {
+    try {
+      await leaveParty(serverUrl, partySession.code, partySession.memberToken);
+    } catch (err) {
+      console.error('Stat Gatherer: failed to leave party during local reset', err);
+    }
+  }
   state.resetAllData();
+  partySession = null;
+  partyState = null;
   currentMission = state.getCurrentMission(config);
   closeItemPopup();
   renderPoiGrid();
   renderStats();
   renderSquadModeSelect();
   renderMissionMetaSelects();
+  renderPartyUi();
   if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
   toast('Local data reset.', 'success');
 });
@@ -2362,6 +3324,7 @@ on('reset-data', 'click', () => {
 function init() {
   safe(() => preloadImages(GUIDE_PRELOAD_SOURCES), 'preloadGuideImages');
   safe(renderClientBadge, 'renderClientBadge');
+  safe(renderServerSettings, 'renderServerSettings');
   safe(renderSimplifiedViewToggle, 'renderSimplifiedViewToggle');
   safe(renderQuickAddBar, 'renderQuickAddBar');
   safe(renderPoiGrid, 'renderPoiGrid');
@@ -2370,6 +3333,7 @@ function init() {
   safe(renderGlobalLogFilterSelects, 'renderGlobalLogFilterSelects');
   safe(renderStats, 'renderStats');
   safe(renderSquadModeSelect, 'renderSquadModeSelect');
+  safe(renderPartyUi, 'renderPartyUi');
   safe(() => startQuickGuide(false), 'startQuickGuide');
   const finishBoot = () => {
     document.body.classList.remove('booting');
@@ -2382,6 +3346,7 @@ function init() {
     requestAnimationFrame(finishBoot);
   }
   syncPendingMissions().then(() => {
+    if (isInParty()) refreshPartyState({ quiet: true }).catch((err) => console.error('Stat Gatherer: initial party refresh failed', err));
     if (!el('stats-global')?.classList.contains('hidden')) refreshGlobalStats();
   }).catch((err) => console.error('Stat Gatherer: initial sync failed', err));
   setInterval(syncPendingMissions, 30000);
