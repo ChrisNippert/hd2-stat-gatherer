@@ -1,6 +1,6 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260904w';
-import * as state from './state.js?v=20260904w';
-import { computeStats, computeDenomStats, filterMissions, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260904w';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260904z';
+import * as state from './state.js?v=20260904z';
+import { computeStats, computeDenomStats, filterMissions, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260904z';
 import {
   pingServer,
   submitMission,
@@ -14,7 +14,7 @@ import {
   kickPartyMember,
   leaveParty,
   finalizeParty,
-} from './api.js?v=20260904w';
+} from './api.js?v=20260904z';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -617,12 +617,12 @@ function renderClientBadge() {
 function renderServerSettings() {
   const input = el('server-url-input');
   const status = el('server-url-status');
-  if (input) input.value = serverUrl;
+  if (input) input.value = state.hasServerUrlOverride() ? serverUrl : '';
   if (!status) return;
   if (!serverUrl) {
     status.textContent = 'Server sync is off for this device. Missions stay local until you save a server URL again.';
   } else if (!state.hasServerUrlOverride()) {
-    status.textContent = `Using the built-in shared server: ${serverUrl}`;
+    status.textContent = 'No server override set for this device.';
   } else {
     status.textContent = `Using a custom server override: ${serverUrl}`;
   }
@@ -836,9 +836,9 @@ function renderMissionActionButtons() {
         btn.textContent = '🗑 CLEAR MY TALLY';
         btn.classList.remove('hidden');
         btn.disabled = false;
-        btn.title = 'Reset only your local contribution for the current party mission.';
+        btn.title = 'Clear only your tally for this party round.';
       });
-      setReadyStatus(`Party ${partySession.code} — reconnecting to the live ready count…`);
+      setReadyStatus(`Party ${partySession.code} — reconnecting…`);
       return;
     }
     const host = isPartyHost();
@@ -848,13 +848,13 @@ function renderMissionActionButtons() {
       if (host) {
         btn.textContent = '⚑ FINALIZE PARTY MISSION';
         btn.classList.add('btn-primary');
-        btn.title = 'Merge every ready party member tally into one mission, save it, and start the next party mission round.';
+        btn.title = 'Merge the party tallies, save the mission, and start the next round.';
       } else {
         btn.textContent = isPartyReady() ? 'MARK NOT READY' : 'READY TO SUBMIT';
         btn.classList.toggle('btn-primary', !isPartyReady());
         btn.title = isPartyReady()
-          ? 'Pull your tally back out of the ready pool so you can keep editing it.'
-          : 'Submit your local tally to the host for the current shared mission round.';
+          ? 'Unlock your tally for more edits.'
+          : 'Submit your tally for this round.';
       }
     });
     readyButtons.forEach((btn) => {
@@ -864,8 +864,8 @@ function renderMissionActionButtons() {
         btn.classList.toggle('btn-primary', !isPartyReady());
         btn.disabled = false;
         btn.title = isPartyReady()
-          ? 'Unlock your own tally and mission labels for more edits.'
-          : 'Submit and lock your own tally while keeping Finalize available.';
+          ? 'Unlock your tally for more edits.'
+          : 'Submit and lock your tally.';
       } else {
         btn.classList.add('hidden');
         btn.classList.remove('btn-primary');
@@ -878,16 +878,16 @@ function renderMissionActionButtons() {
       btn.classList.remove('hidden');
       btn.disabled = isPartyTallyLocked();
       btn.title = isPartyTallyLocked()
-        ? 'Mark not ready before editing or clearing your tally.'
-        : 'Reset only your local contribution for the current party mission.';
+        ? 'Mark not ready before clearing.'
+        : 'Clear only your tally for this party round.';
     });
     const readyText = partyReadyCountLabel(partyState);
     const hostStatus = isPartyTallyLocked()
-      ? (allPartyMembersReady() ? 'your tally is locked — finalize now or mark not ready to edit again.' : 'your tally is locked until you mark not ready.')
-      : (partyReadyTargetCount(partyState) === 0 ? 'you can finalize any time.' : 'finalize from here once everyone is in.');
+      ? (allPartyMembersReady() ? 'locked — finalize or mark not ready.' : 'locked until you mark not ready.')
+      : (partyReadyTargetCount(partyState) === 0 ? 'ready to finalize.' : 'finalize when everyone is ready.');
     setReadyStatus(host
       ? `${readyText} — ${hostStatus}`
-      : `${readyText} — ${isPartyTallyLocked() ? 'your tally is locked until you mark not ready.' : 'use the main button here when your tally is ready.'}`);
+      : `${readyText} — ${isPartyTallyLocked() ? 'locked until you mark not ready.' : 'use the main button when ready.'}`);
     return;
   }
   readyButtons.forEach((btn) => {
@@ -904,10 +904,10 @@ function renderMissionActionButtons() {
     btn.title = '';
   });
   clearButtons.forEach((btn) => {
-    btn.textContent = '🗑 CLEAR (DON\'T SAVE)';
+    btn.textContent = '🗑 CLEAR';
     btn.classList.remove('hidden');
     btn.disabled = false;
-    btn.title = 'Discard the in-progress mission without saving it — for when the tally\'s garbage and you\'d rather start over than keep it';
+    btn.title = 'Discard this in-progress mission without saving it.';
   });
   setReadyStatus('');
 }
@@ -960,14 +960,14 @@ function renderPartyPanel() {
   panel.classList.remove('hidden');
   if (!isInParty()) {
     panel.innerHTML = `
-      <p class="party-lead">Turn a squad run into one shared mission without passing around Diver IDs.</p>
+      <p class="party-lead">Share one mission without sharing Diver IDs.</p>
       <div class="party-section">
         <div class="party-section-head">
           <h3 class="party-section-title">Create a Party</h3>
           <span class="party-role-label">Host flow</span>
         </div>
         ${partyApiUnsupported ? `<p class="party-warning">${esc(partyUnsupportedMessage())}</p>` : ''}
-        <p class="hint party-hint">Start the room, own the mission labels, and finalize the merged mission once everyone is ready.</p>
+        <p class="hint party-hint">Start the room, set the mission labels, finalize when ready.</p>
         <button class="btn btn-primary party-section-btn" type="button" data-action="party-create"${partyApiUnsupported ? ' disabled' : ''}>Create Party</button>
       </div>
       <div class="party-section party-section-emphasis party-section-join">
@@ -975,7 +975,7 @@ function renderPartyPanel() {
           <h3 class="party-section-title">Join a Party</h3>
           <span class="party-role-label">Member flow</span>
         </div>
-        <p class="hint party-hint">Paste the 6-character code from the host, tally your own contribution, then hit Ready to Submit when you're done.</p>
+        <p class="hint party-hint">Paste the code, tally your part, then hit Ready.</p>
         <div class="party-join-inline">
           <input type="text" class="party-join-code-input" data-role="party-join-code" value="${esc(partyJoinCodeDraft)}" spellcheck="false" autocomplete="off" maxlength="8" placeholder="Party Code"${partyApiUnsupported ? ' disabled' : ''} />
           <button class="btn party-section-btn" type="button" data-action="party-join"${partyApiUnsupported ? ' disabled' : ''}>Join Party</button>
@@ -986,9 +986,9 @@ function renderPartyPanel() {
   }
   if (!partyState) {
     panel.innerHTML = `
-      <p class="party-lead">Rejoining party ${esc(partySession.code)}…</p>
+      <p class="party-lead">Rejoining ${esc(partySession.code)}…</p>
       <div class="party-section">
-        <p class="hint party-hint">Loading the current ready count, mission round, and member list.</p>
+        <p class="hint party-hint">Loading party status…</p>
       </div>
     `;
     return;
@@ -1007,7 +1007,7 @@ function renderPartyPanel() {
           <button class="btn party-copy-btn" type="button" data-action="party-copy-code">Copy Code</button>
         </div>
       </div>
-      <p class="hint party-hint">${host ? 'You own the mission labels here, while the main mission button finalizes each round once everyone is ready.' : 'The host owns the mission labels. Your tally stays local until you use the main Ready to Submit button on the tally screen.'}</p>
+      <p class="hint party-hint">${host ? 'You set mission labels here. Finalize from the main screen.' : 'The host sets mission labels. Ready from the main screen.'}</p>
       <div class="party-panel-actions">
         <button class="btn btn-danger" type="button" data-action="party-leave">${esc(leaveLabel)}</button>
       </div>
@@ -1026,7 +1026,7 @@ function renderPartySettings() {
   if (!container) return;
   if (!isInParty()) {
     container.innerHTML = `
-      <p class="hint">Use the PARTY button on the page-nav bar for the front-and-center version of this flow.</p>
+      <p class="hint">Use the PARTY button for the full flow.</p>
       ${partyApiUnsupported ? `<p class="party-warning">${esc(partyUnsupportedMessage())}</p>` : ''}
       <div class="row party-settings-row">
         <button class="btn btn-primary" type="button" data-action="party-create"${partyApiUnsupported ? ' disabled' : ''}>Create Party</button>
@@ -1039,7 +1039,7 @@ function renderPartySettings() {
     return;
   }
   if (!partyState) {
-    container.innerHTML = `<p class="hint">Rejoining party ${esc(partySession.code)}…</p>`;
+    container.innerHTML = `<p class="hint">Rejoining ${esc(partySession.code)}…</p>`;
     return;
   }
   const host = isPartyHost();
@@ -1234,7 +1234,7 @@ async function togglePartyReadyState() {
     }
     applyPartyState(data.party);
     if (!wasReady) closePartyPanel();
-    toast(!wasReady ? 'Party tally submitted. Mark not ready to edit it again.' : 'Party tally marked as not ready.', 'success');
+    toast(!wasReady ? 'Submitted. Mark not ready to edit again.' : 'Marked not ready.', 'success');
   } catch (err) {
     handlePartyAccessError(err, err.message || 'Could not update party readiness.');
   }
@@ -1260,7 +1260,7 @@ async function finalizePartyMissionSubmission(allMinorPlacesCollected) {
     closePartyPanel();
     closeSubmitPopup();
     closeMissionPanel();
-    toast('Party mission saved. Next party mission started.', 'success');
+    toast('Party mission saved. Next round started.', 'success');
   } catch (err) {
     handlePartyAccessError(err, err.message || 'Could not finalize party mission.');
   }
@@ -2168,21 +2168,20 @@ on('item-popup', 'click', (e) => {
 
 function submitPromptHtml() {
   const finalAction = isInParty() && isPartyHost()
-    ? 'This will merge every ready party member tally into one mission, save it to the server, and start the next shared party round.'
-    : 'This will save the mission to your history and start a fresh one.';
+    ? 'Merge ready tallies, save, start next round.'
+    : 'Save this mission and start the next one.';
   return `
     <div class="item-popup-header">
       <div class="item-popup-heading">
-        <div class="item-popup-name">All Minor Place Loot Collected?</div>
-        <div class="item-popup-poi">This means the special bunker/container/pod loot, not loose samples nearby.</div>
+        <div class="item-popup-name">Got All MPOI Loot?</div>
+        <div class="item-popup-poi">Count bunker/container/pod loot only.</div>
       </div>
       <button class="btn btn-icon close-btn" data-action="submit-cancel" aria-label="Close">✕</button>
     </div>
-    <p>If you think this run cleared every Minor Place's special loot on the map, mark it here. Ignore loose samples around the POI — this question is only about the actual bunker/container/pod drops.</p>
     <p class="hint" style="margin-top:0;">${esc(finalAction)}</p>
     <div class="submit-popup-actions">
-      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">${isInParty() && isPartyHost() ? 'Yes — finalize the party mission' : 'Yes — I think we got all MPOI loot'}</button>
-      <button class="btn" type="button" data-action="submit-finish" data-collected="no">${isInParty() && isPartyHost() ? 'Finalize without marking all MPOIs' : 'No / Not Sure'}</button>
+      <button class="btn btn-primary" type="button" data-action="submit-finish" data-collected="yes">${isInParty() && isPartyHost() ? 'YES — FINALIZE' : 'YES'}</button>
+      <button class="btn" type="button" data-action="submit-finish" data-collected="no">${isInParty() && isPartyHost() ? 'FINALIZE ANYWAY' : 'NO / UNSURE'}</button>
     </div>
     <div class="submit-popup-cancel">
       <button class="btn-link" type="button" data-action="submit-cancel">Cancel</button>
@@ -2212,20 +2211,19 @@ function closeSubmitPopup() {
 
 function clearPromptHtml() {
   const subtitle = isInParty()
-    ? 'This resets only your local contribution for the current party mission.'
-    : 'This wipes the in-progress tally only.';
+    ? 'This clears only your tally.'
+    : 'This clears the current mission only.';
   return `
     <div class="item-popup-header">
       <div class="item-popup-heading">
-        <div class="item-popup-name">Discard Current Mission?</div>
+        <div class="item-popup-name">Clear Current Mission?</div>
         <div class="item-popup-poi">${esc(subtitle)}</div>
       </div>
       <button class="btn btn-icon close-btn" data-action="clear-cancel" aria-label="Close">✕</button>
     </div>
-    <p>${isInParty() ? 'If your contribution is garbage, clear it here and keep the party round alive for everyone else.' : 'If this run is garbage, clear it here and start fresh. Nothing from the current mission will be saved or synced.'}</p>
     <div class="submit-popup-actions">
-      <button class="btn btn-danger" type="button" data-action="clear-confirm">${isInParty() ? 'Yes — clear my tally' : 'Yes — discard this mission'}</button>
-      <button class="btn" type="button" data-action="clear-cancel">Keep working on it</button>
+      <button class="btn btn-danger" type="button" data-action="clear-confirm">${isInParty() ? 'CLEAR MY TALLY' : 'CLEAR MISSION'}</button>
+      <button class="btn" type="button" data-action="clear-cancel">Cancel</button>
     </div>
   `;
 }
@@ -3197,7 +3195,7 @@ async function applyServerUrlSetting(nextUrl, { useDefault = false } = {}) {
   renderPartyUi();
   renderStats();
   if (!el('log-page')?.classList.contains('hidden')) renderLogPage();
-  toast(useDefault ? 'Switched back to the built-in shared server.' : `Server set to ${serverUrl}.`, 'success');
+  toast(useDefault ? 'Server override cleared.' : `Server set to ${serverUrl}.`, 'success');
 }
 
 on('apply-server-url', 'click', async () => {

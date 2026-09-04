@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260904w" />
+<link rel="stylesheet" href="css/style.css?v=20260904z" />
 </head>
 <body class="booting">
 <div class="scanlines" aria-hidden="true"></div>
@@ -81,7 +81,7 @@
     <div class="mission-actions">
       <button id="new-mission-btn" class="btn btn-primary btn-large">⚑ NEW MISSION — SAVE &amp; RESET</button>
       <button id="party-ready-btn" class="btn hidden" type="button">READY TO SUBMIT</button>
-      <button id="clear-mission-btn" class="btn btn-danger" title="Discard the in-progress mission without saving it — for when the tally's garbage and you'd rather start over than keep it">🗑 CLEAR (DON'T SAVE)</button>
+      <button id="clear-mission-btn" class="btn btn-danger" title="Discard this in-progress mission without saving it.">🗑 CLEAR</button>
       <div id="mission-ready-status" class="hint mission-action-status hidden"></div>
     </div>
   </section>
@@ -94,11 +94,11 @@
     <div class="poi-mission-actions">
       <button id="poi-new-mission-btn" class="btn btn-primary">⚑ NEW MISSION — SAVE &amp; RESET</button>
       <button id="poi-party-ready-btn" class="btn hidden" type="button">READY TO SUBMIT</button>
-      <button id="poi-clear-mission-btn" class="btn btn-danger">🗑 CLEAR (DON'T SAVE)</button>
+      <button id="poi-clear-mission-btn" class="btn btn-danger">🗑 CLEAR</button>
       <div id="poi-ready-status" class="hint mission-action-status hidden"></div>
     </div>
     <div class="quick-add-bar hidden" id="quick-add-bar"></div>
-    <p class="hint">Simplified View: tap +1 FOUND, then pick what dropped from each special loot slot until it's full. Advanced View: item clicks can auto-count the matching POI for you as needed. This is for the bunker/container/pod rewards themselves — not loose samples lying nearby. For Medals, Requisition, and Super Credits, pick the exact amount too.</p>
+    <p class="hint">Simplified: tap +1 FOUND, then fill each slot. Advanced: tap item rows directly. Ignore loose samples. Pick exact amounts for Medals, Requisition, and Super Credits.</p>
     <div id="poi-grid" class="poi-grid"></div>
   </section>
 </main>
@@ -139,12 +139,12 @@
     </div>
 
     <div id="log-mine" class="log-tab-content">
-      <p class="hint">Edit or delete previously saved missions.</p>
+      <p class="hint">Edit or delete saved missions.</p>
       <div id="log-list" class="log-list"></div>
     </div>
 
     <div id="log-global" class="log-tab-content hidden">
-      <p class="hint">Every mission synced to this server, from every diver — read-only. Filter to find missions matching a particular run, then open one to see exactly what it dropped.</p>
+      <p class="hint">Read-only missions from every diver on this server.</p>
       <div class="stats-filter-row">
         <span class="hint" style="margin:0;">Filter</span>
         <select id="global-log-squad-filter" class="squad-select" title="Squad access differs by mode — 2-man bunkers can't be looted solo without a Warp Pack">
@@ -180,7 +180,7 @@
 
     <div class="settings-group">
       <h3>Diver ID</h3>
-      <p class="hint">This ID identifies your stats on the server. Enter a different ID to log in as that diver (pulls their synced history from the server).</p>
+      <p class="hint">This ID links your synced stats. Enter another ID to load that diver.</p>
       <div class="row">
         <input type="text" id="client-id-input" spellcheck="false" />
         <button id="apply-client-id" class="btn">Set</button>
@@ -189,7 +189,7 @@
 
     <div class="settings-group">
       <h3>Quick Guide</h3>
-      <p class="hint">Replay the first-run walkthrough if you want a refresher on the live tally flow.</p>
+      <p class="hint">Replay the walkthrough.</p>
       <div class="row">
         <button id="replay-guide-btn" class="btn">Replay Guide</button>
       </div>
@@ -197,11 +197,11 @@
 
     <div class="settings-group">
       <h3>Server</h3>
-      <p class="hint">Use the built-in shared server by default, or point this device at your own server like <code>http://localhost:4000</code> or <code>http://192.168.x.x:4000</code>. Clear the field and save to stay offline.</p>
+      <p class="hint">Optional device override. Example: <code>http://localhost:4000</code> or <code>http://192.168.x.x:4000</code>. Clear and save to stay offline.</p>
       <div class="row">
         <input type="text" id="server-url-input" spellcheck="false" placeholder="https://... or http://localhost:4000" />
         <button id="apply-server-url" class="btn">Save</button>
-        <button id="use-default-server-url" class="btn">Use Default</button>
+        <button id="use-default-server-url" class="btn">Clear Override</button>
       </div>
       <p id="server-url-status" class="hint"></p>
     </div>
@@ -251,6 +251,6 @@
 <script>
 setTimeout(() => document.body?.classList.remove('booting'), 1500);
 </script>
-<script type="module" src="js/main.js?v=20260904w"></script>
+<script type="module" src="js/main.js?v=20260904z"></script>
 </body>
 </html>
