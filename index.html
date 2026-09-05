@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/style.css?v=20260904z" />
+<link rel="stylesheet" href="css/style.css?v=20260904ab" />
 </head>
 <body class="booting">
 <div class="scanlines" aria-hidden="true"></div>
@@ -228,9 +228,11 @@
 <div id="party-overlay" class="settings-overlay hidden"></div>
 <aside id="party-drawer" class="settings-panel party-drawer hidden">
   <div class="settings-inner">
-    <button id="close-party-panel" class="btn btn-icon close-btn" type="button" data-action="party-close" onclick="window.__sgClosePartyPanel && window.__sgClosePartyPanel()" aria-label="Close party panel">✕</button>
     <div class="party-drawer-header">
-      <h2>PARTY</h2>
+      <div class="party-drawer-top">
+        <h2>PARTY</h2>
+        <button id="close-party-panel" class="btn btn-icon close-btn" type="button" data-action="party-close" onclick="window.__sgClosePartyPanel && window.__sgClosePartyPanel()" aria-label="Close party panel">✕</button>
+      </div>
       <p class="party-drawer-subtitle">Create, join, or manage a shared squad mission code.</p>
     </div>
     <div id="party-panel" class="party-panel"></div>
@@ -251,6 +253,6 @@
 <script>
 setTimeout(() => document.body?.classList.remove('booting'), 1500);
 </script>
-<script type="module" src="js/main.js?v=20260904z"></script>
+<script type="module" src="js/main.js?v=20260904ab"></script>
 </body>
 </html>

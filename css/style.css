@@ -785,8 +785,14 @@ main {
   padding-top: 18px;
 }
 
+.party-drawer-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .party-drawer-header {
-  padding-right: 56px;
   margin-bottom: 16px;
   padding-bottom: 12px;
   position: relative;
@@ -803,11 +809,19 @@ main {
 }
 
 .party-drawer-header h2 {
-  margin: 0 0 4px;
+  margin: 0;
+}
+
+.party-drawer .close-btn {
+  position: static;
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  z-index: 1;
 }
 
 .party-drawer-subtitle {
-  margin: 0;
+  margin: 6px 0 0;
   font-size: 15px;
   line-height: 1.4;
   color: var(--text-dim);

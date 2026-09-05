@@ -1,6 +1,6 @@
-import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260904z';
-import * as state from './state.js?v=20260904z';
-import { computeStats, computeDenomStats, filterMissions, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260904z';
+import { loadConfig, saveConfig, FALLBACK_ICON, isImageIcon } from './config.js?v=20260904ab';
+import * as state from './state.js?v=20260904ab';
+import { computeStats, computeDenomStats, filterMissions, totalPois, buildDenomTallyFromMissions } from './stats.js?v=20260904ab';
 import {
   pingServer,
   submitMission,
@@ -14,7 +14,7 @@ import {
   kickPartyMember,
   leaveParty,
   finalizeParty,
-} from './api.js?v=20260904z';
+} from './api.js?v=20260904ab';
 
 let config = loadConfig();
 let clientId = state.getClientId();
@@ -88,13 +88,27 @@ function showAnimated(elm) {
     elm.removeEventListener('transitionend', elm._hideAnimatedFinish);
     elm._hideAnimatedFinish = null;
   }
+  if (elm._showAnimatedFrameA) cancelAnimationFrame(elm._showAnimatedFrameA);
+  if (elm._showAnimatedFrameB) cancelAnimationFrame(elm._showAnimatedFrameB);
+  elm._showAnimatedFrameA = null;
+  elm._showAnimatedFrameB = null;
   elm.classList.remove('hidden');
-  requestAnimationFrame(() => requestAnimationFrame(() => elm.classList.add('is-open')));
+  elm._showAnimatedFrameA = requestAnimationFrame(() => {
+    elm._showAnimatedFrameA = null;
+    elm._showAnimatedFrameB = requestAnimationFrame(() => {
+      elm._showAnimatedFrameB = null;
+      elm.classList.add('is-open');
+    });
+  });
 }
 function hideAnimated(elm) {
   if (!elm) return;
   clearTimeout(elm._hideAnimatedTimer);
   if (elm._hideAnimatedFinish) elm.removeEventListener('transitionend', elm._hideAnimatedFinish);
+  if (elm._showAnimatedFrameA) cancelAnimationFrame(elm._showAnimatedFrameA);
+  if (elm._showAnimatedFrameB) cancelAnimationFrame(elm._showAnimatedFrameB);
+  elm._showAnimatedFrameA = null;
+  elm._showAnimatedFrameB = null;
   elm.classList.remove('is-open');
   const finish = () => {
     if (elm._hideAnimatedFinish !== finish) return;
